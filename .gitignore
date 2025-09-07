@@ -9,3 +9,10 @@ pnpm-debug.log*
 .idea/
 .env
 .env.*.local
+.venv/
+__pycache__/
+.env
+.env.*
+state.json
+*.log
+.DS_Store
