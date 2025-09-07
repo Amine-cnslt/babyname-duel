@@ -1,0 +1,13 @@
+{
+  "state": {
+    "phase": "ENTRY_A",
+    "coupleLabel": "Local Demo",
+    "partners": { "A": "Alex", "B": "Blair" },
+    "entries": {
+      "A": [ { "name": "Aria", "score": "1" }, { "name": "Mia", "score": "" } ],
+      "B": []
+    },
+    "crossScores": { "A_on_B": [], "B_on_A": [] },
+    "tie": { "round": 0, "candidates": [], "A_on_B": [], "B_on_A": [] }
+  }
+}

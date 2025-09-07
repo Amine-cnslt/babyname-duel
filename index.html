@@ -4,10 +4,26 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Vite + React</title>
+    <title>BabyName Duel</title>
+
+    <!-- Firebase runtime config -->
+    <script>
+      window.__BND = {
+        firebaseConfig: {
+          apiKey: "AIzaSyA4Z1GxTR8chhrHf18e_SgSiHqIlV0PCKw",
+          authDomain: "babyname-duel.firebaseapp.com",
+          projectId: "babyname-duel",
+          storageBucket: "babyname-duel.appspot.com",  // <-- fix
+          messagingSenderId: "731366261893",
+          appId: "1:731366261893:web:d0862da824646044b115ec",  // <-- add comma
+          measurementId: "G-QM3BMSWVE0"
+        }
+      };
+    </script>
   </head>
   <body>
     <div id="root"></div>
+    <!-- Keep this AFTER the config block -->
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>
