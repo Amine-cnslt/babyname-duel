@@ -1,3 +1,4 @@
+from werkzeug.security import generate_password_hash, check_password_hash
 
 """
 Flask server for BabyName Duel (MySQL path)
@@ -23,6 +24,25 @@ from sqlalchemy import (
     ForeignKey, UniqueConstraint, text as sql_text
 )
 from sqlalchemy.orm import declarative_base, sessionmaker, scoped_session, relationship
+from dotenv import load_dotenv
+import os
+
+# Load .env.local using an absolute path (more reliable than relative cwd)
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+ENV_PATH = os.path.join(BASE_DIR, ".env.local")
+print("DEBUG: CWD =", os.getcwd())
+print("DEBUG: ENV_PATH =", ENV_PATH, "exists?", os.path.exists(ENV_PATH))
+
+load_dotenv(dotenv_path=ENV_PATH, override=True)
+
+print("DEBUG: DATABASE_URL =", os.getenv("DATABASE_URL"))
+
+DATABASE_URL = os.getenv("DATABASE_URL")
+if not DATABASE_URL:
+    raise RuntimeError(
+        "DATABASE_URL is not set. Example: mysql+pymysql://bnd_user:***@127.0.0.1:3306/bnd"
+    )
+
 
 # ----------------------------------------------------------------------------
 # App & Config
@@ -30,6 +50,10 @@ from sqlalchemy.orm import declarative_base, sessionmaker, scoped_session, relat
 
 DIST_DIR = os.path.join(os.path.dirname(__file__), "dist")
 app = Flask(__name__, static_folder="dist", static_url_path="/")
+@app.route("/api/test", methods=["GET"])
+def test_api():
+    return {"message": "Flask backend is working!"}, 200
+
 
 CORS(app, resources={r"/api/*": {"origins": os.getenv("ALLOWED_ORIGIN", "*")}})
 
@@ -47,7 +71,21 @@ engine = create_engine(
     future=True,
 )
 SessionLocal = scoped_session(sessionmaker(bind=engine, autoflush=False, autocommit=False, expire_on_commit=False))
+def now_utc():
+    return datetime.utcnow()
+
 Base = declarative_base()
+
+# --- NEW User model ---
+class User(Base):
+    __tablename__ = "users"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    email = Column(String(320), nullable=False, unique=True, index=True)
+    display_name = Column(String(120), nullable=True)
+    password_hash = Column(String(255), nullable=False)
+    created_at = Column(DateTime, default=now_utc, nullable=False)
+
 
 def now_utc():
     # naive UTC datetime stored in DB
@@ -75,10 +113,11 @@ class Session(Base):
 
 class Member(Base):
     __tablename__ = "members"
-    session_id = Column(String(36), ForeignKey("sessions.id"), primary_key=True)
-    user_id = Column(String(64), primary_key=True)
-    role = Column(String(16), nullable=False)  # "owner" | "voter"
-    joined_at = Column(DateTime, default=now_utc, nullable=False)
+
+    session_id = Column(String(36), ForeignKey("sessions.id"), primary_key=True, nullable=False)
+    user_id    = Column(String(64), primary_key=True, nullable=False)
+    role       = Column(String(16), nullable=False)
+    joined_at  = Column(DateTime, default=now_utc, nullable=False)
 
     session = relationship("Session", back_populates="members")
 
@@ -419,4 +458,43 @@ if __name__ == "__main__":
         load_dotenv(".env.local", override=True)
     except Exception:
         pass
-    app.run(debug=True, host="127.0.0.1", port=5000)
+    
+
+
+# --- Signup endpoint (MySQL-backed) ---
+@app.route("/api/signup", methods=["POST"])
+def api_signup():
+    db = SessionLocal()
+    data = request.get_json(force=True) or {}
+    full_name = (data.get("fullName") or "").strip()
+    email = (data.get("email") or "").strip().lower()
+    password = data.get("password") or ""
+
+    if not full_name or not email or not password:
+        return jsonify({"ok": False, "error": "Missing fields"}), 400
+    if db.query(User).filter_by(email=email).first():
+        return jsonify({"ok": False, "error": "Email already exists"}), 409
+
+    hashed = generate_password_hash(password)
+    user = User(email=email, display_name=full_name, password_hash=hashed)
+    db.add(user)
+    db.commit()
+    return jsonify({"ok": True, "user": {"email": email, "displayName": full_name}})
+
+# --- Login endpoint (MySQL-backed) ---
+@app.route("/api/login", methods=["POST"])
+def api_login():
+    db = SessionLocal()
+    data = request.get_json(force=True) or {}
+    email = (data.get("email") or "").strip().lower()
+    password = data.get("password") or ""
+    user = db.query(User).filter_by(email=email).first()
+    if not user or not check_password_hash(user.password_hash, password):
+        return jsonify({"ok": False, "error": "Invalid credentials"}), 401
+    return jsonify({"ok": True, "user": {"email": email, "displayName": user.display_name}})
+
+if __name__ == "__main__":
+    print("DEBUG: entering __main__ block")
+    Base.metadata.create_all(engine)
+    app.run(debug=True, host="127.0.0.1", port=5050)
+
