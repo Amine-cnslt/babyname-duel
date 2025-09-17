@@ -10,6 +10,7 @@ pnpm-debug.log*
 .env
 .env.*.local
 .venv/
+.venv.backup/
 venv/
 __pycache__/
 .env
