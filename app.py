@@ -13,7 +13,8 @@ Optional:
 """
 
 import os
-from datetime import datetime
+import re
+from datetime import datetime, timedelta
 from uuid import uuid4
 
 from flask import Flask, request, jsonify, send_from_directory
@@ -25,7 +26,6 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import declarative_base, sessionmaker, scoped_session, relationship
 from dotenv import load_dotenv
-import os
 
 # Load .env.local using an absolute path (more reliable than relative cwd)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -43,23 +43,18 @@ if not DATABASE_URL:
         "DATABASE_URL is not set. Example: mysql+pymysql://bnd_user:***@127.0.0.1:3306/bnd"
     )
 
-
 # ----------------------------------------------------------------------------
 # App & Config
 # ----------------------------------------------------------------------------
 
 DIST_DIR = os.path.join(os.path.dirname(__file__), "dist")
 app = Flask(__name__, static_folder="dist", static_url_path="/")
+
 @app.route("/api/test", methods=["GET"])
 def test_api():
     return {"message": "Flask backend is working!"}, 200
 
-
 CORS(app, resources={r"/api/*": {"origins": os.getenv("ALLOWED_ORIGIN", "*")}})
-
-DATABASE_URL = os.getenv("DATABASE_URL")
-if not DATABASE_URL:
-    raise RuntimeError("DATABASE_URL is not set. Example: mysql+pymysql://bnd_user:***@127.0.0.1:3306/bnd")
 
 # ----------------------------------------------------------------------------
 # Database
@@ -71,10 +66,28 @@ engine = create_engine(
     future=True,
 )
 SessionLocal = scoped_session(sessionmaker(bind=engine, autoflush=False, autocommit=False, expire_on_commit=False))
-def now_utc():
-    return datetime.utcnow()
 
 Base = declarative_base()
+
+def now_utc():
+    # naive UTC datetime stored in DB
+    return datetime.utcnow()
+
+EMAIL_REGEX = re.compile(
+    r"^[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+)*@"
+    r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?"
+    r"(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+$"
+)
+
+
+def _uuid() -> str:
+    return uuid4().hex
+
+
+def _is_valid_email(value: str) -> bool:
+    if not value or len(value) > 320:
+        return False
+    return EMAIL_REGEX.match(value) is not None
 
 # --- NEW User model ---
 class User(Base):
@@ -86,13 +99,16 @@ class User(Base):
     password_hash = Column(String(255), nullable=False)
     created_at = Column(DateTime, default=now_utc, nullable=False)
 
+class ResetToken(Base):
+    __tablename__ = "reset_tokens"
 
-def now_utc():
-    # naive UTC datetime stored in DB
-    return datetime.utcnow()
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    token = Column(String(36), nullable=False, unique=True)
+    expires_at = Column(DateTime, nullable=False)
+    created_at = Column(DateTime, default=now_utc, nullable=False)
 
-def _uuid() -> str:
-    return uuid4().hex
+    user = relationship("User")
 
 # ---------------- Models -----------------
 
@@ -114,315 +130,121 @@ class Session(Base):
 class Member(Base):
     __tablename__ = "members"
 
-    session_id = Column(String(36), ForeignKey("sessions.id"), primary_key=True, nullable=False)
-    user_id    = Column(String(64), primary_key=True, nullable=False)
-    role       = Column(String(16), nullable=False)
-    joined_at  = Column(DateTime, default=now_utc, nullable=False)
+    session_id = Column(String(36), ForeignKey("sessions.id"), primary_key=True)
+    uid = Column(String(64), primary_key=True)
+    role = Column(String(16), nullable=False)  # owner | voter
+    joined_at = Column(DateTime, default=now_utc, nullable=False)
 
     session = relationship("Session", back_populates="members")
 
 class ListItem(Base):
     __tablename__ = "list_items"
+
     session_id = Column(String(36), ForeignKey("sessions.id"), primary_key=True)
     owner_uid = Column(String(64), primary_key=True)
-    name = Column(String(200), primary_key=True)  # one row per name
-    self_rank = Column(Integer, nullable=False)
+    name = Column(String(100), primary_key=True)
+    self_rank = Column(Integer, nullable=False)  # 1-10
+    created_at = Column(DateTime, default=now_utc, nullable=False)
 
     session = relationship("Session", back_populates="lists")
 
 class Score(Base):
     __tablename__ = "scores"
+
     session_id = Column(String(36), ForeignKey("sessions.id"), primary_key=True)
     list_owner_uid = Column(String(64), primary_key=True)
     rater_uid = Column(String(64), primary_key=True)
-    score_value = Column(Integer, primary_key=True)  # 1..10 uniquely per rater per list
-    name = Column(String(200), nullable=False)
+    name = Column(String(100), primary_key=True)
+    score_value = Column(Integer, nullable=False)  # 1-10
     created_at = Column(DateTime, default=now_utc, nullable=False)
 
     session = relationship("Session", back_populates="scores")
 
-    __table_args__ = (
-        # guard against same 1..10 reuse per (list_owner_uid, rater_uid)
-        UniqueConstraint("session_id", "list_owner_uid", "rater_uid", "score_value", name="uq_score_unique_value"),
-    )
-
-# Create tables
-Base.metadata.create_all(engine)
-
 # ----------------------------------------------------------------------------
-# Helpers
+# API Endpoints
 # ----------------------------------------------------------------------------
 
-def json_body():
-    try:
-        return request.get_json(force=True) or {}
-    except Exception:
-        return {}
-
-def current_uid():
-    # Dev-only identity: allow header override; swap to Firebase JWT later
-    uid = request.headers.get("X-Dev-Uid")
-    if not uid:
-        uid = "dev-1"
-    return uid
-
-# ----------------------------------------------------------------------------
-# Health & DB check
-# ----------------------------------------------------------------------------
-
-@app.get("/api/health")
-def api_health():
-    return jsonify({"ok": True}), 200
-
-@app.get("/api/dbcheck")
-def api_dbcheck():
-    try:
-        with engine.connect() as conn:
-            conn.execute(sql_text("SELECT 1"))
-        return jsonify({"ok": True}), 200
-    except Exception as e:
-        return jsonify({"ok": False, "error": str(e)}), 500
-
-# ----------------------------------------------------------------------------
-# Sessions
-# ----------------------------------------------------------------------------
-
-@app.post("/api/sessions")
-def create_session():
-    data = json_body()
-    title = (data.get("title") or "Untitled").strip()
-    try:
-        max_owners = int(data.get("maxOwners", 2))
-    except Exception:
-        max_owners = 2
-    max_owners = 3 if max_owners == 3 else 2
-
-    sid = _uuid()
-    owner_token = _uuid()
-    voter_token = _uuid()
-    uid = current_uid()
-
+# --- Signup endpoint (MySQL-backed) ---
+@app.route("/api/signup", methods=["POST"])
+def api_signup():
     db = SessionLocal()
-    try:
-        rec = Session(
-            id=sid,
-            title=title,
-            created_by=uid,
-            max_owners=max_owners,
-            status="active",
-            invite_owner_token=owner_token,
-            invite_voter_token=voter_token,
-        )
-        db.add(rec)
-        db.add(Member(session_id=sid, user_id=uid, role="owner"))
-        db.commit()
-        return jsonify({"sid": sid, "ownerToken": owner_token, "voterToken": voter_token}), 200
-    except Exception as e:
-        db.rollback()
-        return jsonify({"error": str(e)}), 500
-    finally:
-        db.close()
+    data = request.get_json(force=True) or {}
+    full_name = (data.get("fullName") or "").strip()
+    email = (data.get("email") or "").strip().lower()
+    password = data.get("password") or ""
 
-@app.post("/api/sessions/<sid>/join")
-def join_with_token(sid):
-    data = json_body()
-    token = data.get("token") or ""
-    as_owner = bool(data.get("asOwner"))
-    uid = current_uid()
+    if not full_name or not email or not password:
+        return jsonify({"ok": False, "error": "Missing fields"}), 400
+    if not _is_valid_email(email):
+        return jsonify({"ok": False, "error": "Invalid email address"}), 400
+    if db.query(User).filter_by(email=email).first():
+        return jsonify({"ok": False, "error": "Email already exists"}), 409
 
+    hashed = generate_password_hash(password)
+    user = User(email=email, display_name=full_name, password_hash=hashed)
+    db.add(user)
+    db.commit()
+    return jsonify({"ok": True, "user": {"email": email, "displayName": full_name}})
+
+# --- Login endpoint (MySQL-backed) ---
+@app.route("/api/login", methods=["POST"])
+def api_login():
     db = SessionLocal()
-    try:
-        sess = db.get(Session, sid)
-        if not sess or sess.status != "active":
-            return jsonify({"error": "Session not found"}), 404
+    data = request.get_json(force=True) or {}
+    email = (data.get("email") or "").strip().lower()
+    password = data.get("password") or ""
+    user = db.query(User).filter_by(email=email).first()
+    if not user or not check_password_hash(user.password_hash, password):
+        return jsonify({"ok": False, "error": "Invalid credentials"}), 401
+    return jsonify({"ok": True, "user": {"email": email, "displayName": user.display_name}})
 
-        if as_owner:
-            if token != sess.invite_owner_token:
-                return jsonify({"error": "Invalid owner token"}), 400
-            current_owner_count = db.query(Member).filter_by(session_id=sid, role="owner").count()
-            if current_owner_count >= (sess.max_owners or 2):
-                return jsonify({"error": "Owner limit reached"}), 400
-            # upsert member as owner
-            m = db.query(Member).filter_by(session_id=sid, user_id=uid).one_or_none()
-            if m:
-                m.role = "owner"
-            else:
-                db.add(Member(session_id=sid, user_id=uid, role="owner"))
-        else:
-            if token != sess.invite_voter_token:
-                return jsonify({"error": "Invalid voter token"}), 400
-            # upsert member as voter
-            m = db.query(Member).filter_by(session_id=sid, user_id=uid).one_or_none()
-            if m:
-                m.role = "voter"
-            else:
-                db.add(Member(session_id=sid, user_id=uid, role="voter"))
-
-        db.commit()
-        return jsonify({"ok": True}), 200
-    except Exception as e:
-        db.rollback()
-        return jsonify({"error": str(e)}), 500
-    finally:
-        db.close()
-
-@app.put("/api/sessions/<sid>/lists")
-def upsert_owner_list(sid):
-    data = json_body()
-    names = data.get("names") or []
-    self_ranks = data.get("selfRanks") or {}
-    uid = current_uid()
-
-    # guard constraints
-    if len(names) != 10:
-        return jsonify({"error": "Exactly 10 names required"}), 400
-    if len(set(n.strip().lower() for n in names)) != 10:
-        return jsonify({"error": "Names must be unique"}), 400
-    ranks = list(self_ranks.values())
-    try:
-        ranks = [int(x) for x in ranks]
-    except Exception:
-        return jsonify({"error": "Ranks must be integers"}), 400
-    if sorted(ranks) != list(range(1, 11)):
-        return jsonify({"error": "Ranks must be 1..10 and used once"}), 400
-
+# --- Password reset request endpoint ---
+@app.route("/api/reset-password-request", methods=["POST"])
+def api_reset_password_request():
     db = SessionLocal()
-    try:
-        sess = db.get(Session, sid)
-        if not sess or sess.status != "active":
-            return jsonify({"error": "Session not found"}), 404
-        # Ensure caller is an owner
-        role = db.query(Member).filter_by(session_id=sid, user_id=uid).one_or_none()
-        if not role or role.role != "owner":
-            return jsonify({"error": "Only owners can save their list"}), 403
+    data = request.get_json(force=True) or {}
+    email = (data.get("email") or "").strip().lower()
+    if not email:
+        return jsonify({"ok": False, "error": "Email required"}), 400
+    if not _is_valid_email(email):
+        return jsonify({"ok": False, "error": "Invalid email address"}), 400
 
-        # Delete previous rows for this owner
-        db.query(ListItem).filter_by(session_id=sid, owner_uid=uid).delete()
-        # Insert new rows
-        for n in names:
-            db.add(ListItem(session_id=sid, owner_uid=uid, name=n, self_rank=int(self_ranks[n])))
-        db.commit()
-        return jsonify({"ok": True}), 200
-    except Exception as e:
-        db.rollback()
-        return jsonify({"error": str(e)}), 500
-    finally:
-        db.close()
+    user = db.query(User).filter_by(email=email).first()
+    if not user:
+        # Don't reveal if email exists
+        return jsonify({"ok": True, "message": "If the email exists, a reset link has been sent."}), 200
 
-@app.post("/api/sessions/<sid>/scores")
-def submit_score(sid):
-    data = json_body()
-    list_owner_uid = data.get("listOwnerUid")
-    name = data.get("name")
-    try:
-        score_value = int(data.get("scoreValue"))
-    except Exception:
-        return jsonify({"error": "Invalid scoreValue"}), 400
+    token = _uuid()  # Use existing _uuid function
+    expires_at = now_utc() + timedelta(hours=1)
+    reset = ResetToken(user_id=user.id, token=token, expires_at=expires_at)
+    db.add(reset)
+    db.commit()
 
-    uid = current_uid()
+    # TODO: Send email with link like https://yourdomain.com/reset?token=token
+    # For now, return token for testing
+    return jsonify({"ok": True, "token": token, "message": "Reset token generated (for dev)."}), 200
 
+# --- Password reset confirmation endpoint ---
+@app.route("/api/reset-password", methods=["POST"])
+def api_reset_password():
     db = SessionLocal()
-    try:
-        sess = db.get(Session, sid)
-        if not sess or sess.status != "active":
-            return jsonify({"error": "Session not found"}), 404
+    data = request.get_json(force=True) or {}
+    token = (data.get("token") or "").strip()
+    new_password = data.get("newPassword") or ""
 
-        # Disallow owner scoring own list
-        if uid == list_owner_uid:
-            return jsonify({"error": "Owner cannot score own list"}), 400
+    if not token or not new_password:
+        return jsonify({"ok": False, "error": "Token and new password required"}), 400
 
-        # Validate name exists in owner's list
-        exists = db.query(ListItem).filter_by(session_id=sid, owner_uid=list_owner_uid, name=name).count()
-        if not exists:
-            return jsonify({"error": "Name not found in owner's list"}), 400
+    reset = db.query(ResetToken).filter_by(token=token).first()
+    if not reset or reset.expires_at < now_utc():
+        return jsonify({"ok": False, "error": "Invalid or expired token"}), 401
 
-        rec = Score(
-            session_id=sid,
-            list_owner_uid=list_owner_uid,
-            rater_uid=uid,
-            score_value=score_value,
-            name=name,
-        )
-        db.add(rec)
-        db.commit()
-        return jsonify({"ok": True}), 200
-    except Exception as e:
-        db.rollback()
-        # Likely uniqueness violation means reused score value
-        return jsonify({"error": str(e)}), 500
-    finally:
-        db.close()
-
-@app.delete("/api/sessions/<sid>")
-def archive_session(sid):
-    uid = current_uid()
-    db = SessionLocal()
-    try:
-        sess = db.get(Session, sid)
-        if not sess:
-            return jsonify({"error": "Session not found"}), 404
-        # only creators or owners can archive
-        is_owner = db.query(Member).filter_by(session_id=sid, user_id=uid, role="owner").count() > 0
-        if not (uid == sess.created_by or is_owner):
-            return jsonify({"error": "Not allowed"}), 403
-        sess.status = "archived"
-        db.commit()
-        return jsonify({"ok": True}), 200
-    except Exception as e:
-        db.rollback()
-        return jsonify({"error": str(e)}), 500
-    finally:
-        db.close()
-
-@app.get("/api/sessions/<sid>/snap")
-def session_snapshot(sid):
-    """Return session core + lists + scores for polling by frontend."""
-    db = SessionLocal()
-    try:
-        sess = db.get(Session, sid)
-        if not sess:
-            return jsonify({"error": "Session not found"}), 404
-
-        # Build lists map: owner_uid -> {names, selfRanks}
-        lists_map = {}
-        rows = db.query(ListItem).filter_by(session_id=sid).all()
-        for li in rows:
-            m = lists_map.setdefault(li.owner_uid, {"names": [], "selfRanks": {}})
-            m["names"].append(li.name)
-            m["selfRanks"][li.name] = li.self_rank
-
-        # Scores array
-        sc = db.query(Score).filter_by(session_id=sid).all()
-        scores_arr = [
-            {
-                "listOwnerUid": r.list_owner_uid,
-                "raterUid": r.rater_uid,
-                "scoreValue": r.score_value,
-                "name": r.name,
-                "createdAt": r.created_at.isoformat(),
-            }
-            for r in sc
-        ]
-
-        out = {
-            "session": {
-                "id": sess.id,
-                "title": sess.title,
-                "createdBy": sess.created_by,
-                "maxOwners": sess.max_owners,
-                "status": sess.status,
-                "inviteOwnerToken": sess.invite_owner_token,
-                "inviteVoterToken": sess.invite_voter_token,
-                "createdAt": sess.created_at.isoformat(),
-            },
-            "lists": lists_map,
-            "scores": scores_arr,
-        }
-        return jsonify(out), 200
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-    finally:
-        db.close()
+    user = reset.user
+    hashed = generate_password_hash(new_password)
+    user.password_hash = hashed
+    db.delete(reset)  # One-time use
+    db.commit()
+    return jsonify({"ok": True, "message": "Password reset successfully."}), 200
 
 # ----------------------------------------------------------------------------
 # Static hosting (built app in /dist)
@@ -458,43 +280,6 @@ if __name__ == "__main__":
         load_dotenv(".env.local", override=True)
     except Exception:
         pass
-    
-
-
-# --- Signup endpoint (MySQL-backed) ---
-@app.route("/api/signup", methods=["POST"])
-def api_signup():
-    db = SessionLocal()
-    data = request.get_json(force=True) or {}
-    full_name = (data.get("fullName") or "").strip()
-    email = (data.get("email") or "").strip().lower()
-    password = data.get("password") or ""
-
-    if not full_name or not email or not password:
-        return jsonify({"ok": False, "error": "Missing fields"}), 400
-    if db.query(User).filter_by(email=email).first():
-        return jsonify({"ok": False, "error": "Email already exists"}), 409
-
-    hashed = generate_password_hash(password)
-    user = User(email=email, display_name=full_name, password_hash=hashed)
-    db.add(user)
-    db.commit()
-    return jsonify({"ok": True, "user": {"email": email, "displayName": full_name}})
-
-# --- Login endpoint (MySQL-backed) ---
-@app.route("/api/login", methods=["POST"])
-def api_login():
-    db = SessionLocal()
-    data = request.get_json(force=True) or {}
-    email = (data.get("email") or "").strip().lower()
-    password = data.get("password") or ""
-    user = db.query(User).filter_by(email=email).first()
-    if not user or not check_password_hash(user.password_hash, password):
-        return jsonify({"ok": False, "error": "Invalid credentials"}), 401
-    return jsonify({"ok": True, "user": {"email": email, "displayName": user.display_name}})
-
-if __name__ == "__main__":
     print("DEBUG: entering __main__ block")
     Base.metadata.create_all(engine)
     app.run(debug=True, host="127.0.0.1", port=5050)
-

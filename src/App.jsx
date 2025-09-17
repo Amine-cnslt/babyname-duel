@@ -461,6 +461,26 @@ export default function App() {
     } finally { setBusy(false); }
   };
 
+  const requestPasswordReset = async (email) => {
+    try {
+      return await api.requestPasswordReset({ email });
+    } catch (e) {
+      console.error(e);
+      alert(e.message || "Password reset request failed");
+      throw e;
+    }
+  };
+
+  const confirmPasswordReset = async (token, newPassword) => {
+    try {
+      return await api.resetPassword({ token, newPassword });
+    } catch (e) {
+      console.error(e);
+      alert(e.message || "Password reset failed");
+      throw e;
+    }
+  };
+
   // Session actions (guarded)
   const createSession = async ({ title, maxOwners }) => {
     if (!api.createSession) return alert("Session API not wired yet");
@@ -534,6 +554,8 @@ export default function App() {
               onGoogleSignIn={() => alert("Google sign-in not wired yet")}
               onEmailSignIn={signInEmail}
               onSignup={(data) => signUpEmail(data.email, data.password, data.fullName)}
+              onRequestReset={requestPasswordReset}
+              onConfirmReset={confirmPasswordReset}
             />
           </div>
         ) : !activeSid ? (
