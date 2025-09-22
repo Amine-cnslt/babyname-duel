@@ -11,7 +11,7 @@ async function request(path, { method = "GET", json } = {}) {
 
   // try to parse JSON; if it fails, throw generic error
   let data = null;
-  try { data = await res.json(); } catch (_) {}
+  try { data = await res.json(); } catch { /* ignore non-JSON responses */ }
 
   if (!res.ok) {
     const msg = data?.error || `HTTP ${res.status}`;
@@ -38,8 +38,11 @@ export async function login({ email, password }) {
 }
 
 // optional placeholder (wire later)
-export async function googleLogin() {
-  throw new Error("Google login not wired yet");
+export async function googleLogin({ idToken }) {
+  return request("/api/google-login", {
+    method: "POST",
+    json: { idToken },
+  });
 }
 
 export async function requestPasswordReset({ email }) {
@@ -56,11 +59,101 @@ export async function resetPassword({ token, newPassword }) {
   });
 }
 
-// Optional MySQL endpoints are not yet implemented; export fallbacks so callers
-// can feature-detect and degrade gracefully without bundler warnings.
-export const createSession = undefined;
-export const joinWithToken = undefined;
-export const onSessionSnapshot = undefined;
-export const upsertOwnerList = undefined;
-export const submitScore = undefined;
-export const deleteSession = undefined;
+export async function createSession({ email, title, requiredNames, nameFocus, invites }) {
+  return request("/api/sessions", {
+    method: "POST",
+    json: { email, title, requiredNames, nameFocus, invites },
+  });
+}
+
+export async function fetchSessions({ email }) {
+  if (!email) throw new Error("email required");
+  return request(`/api/sessions?email=${encodeURIComponent(email)}`);
+}
+
+export async function joinWithToken({ email, token, sid }) {
+  const payload = { email, token };
+  if (sid) payload.sid = sid;
+  return request("/api/sessions/join", {
+    method: "POST",
+    json: payload,
+  });
+}
+
+export async function getSession({ email, sid }) {
+  const path = email
+    ? `/api/sessions/${encodeURIComponent(sid)}?email=${encodeURIComponent(email)}`
+    : `/api/sessions/${encodeURIComponent(sid)}`;
+  return request(path);
+}
+
+export async function upsertOwnerList({ sid, email, names, selfRanks, finalize = false }) {
+  return request(`/api/sessions/${encodeURIComponent(sid)}/lists`, {
+    method: "POST",
+    json: { email, names, selfRanks, finalize },
+  });
+}
+
+export async function submitScore({ sid, email, listOwnerUid, scoreValue, name }) {
+  return request(`/api/sessions/${encodeURIComponent(sid)}/scores`, {
+    method: "POST",
+    json: { email, listOwnerUid, scoreValue, name },
+  });
+}
+
+export async function archiveSession({ sid, email }) {
+  return request(`/api/sessions/${encodeURIComponent(sid)}/archive`, {
+    method: "POST",
+    json: { email },
+  });
+}
+
+export async function deleteSession({ sid, email }) {
+  return request(`/api/sessions/${encodeURIComponent(sid)}`, {
+    method: "DELETE",
+    json: { email },
+  });
+}
+
+export async function lockInvites({ sid, email }) {
+  return request(`/api/sessions/${encodeURIComponent(sid)}/lock-invites`, {
+    method: "POST",
+    json: { email },
+  });
+}
+
+export async function inviteParticipants({ sid, email, participants }) {
+  return request(`/api/sessions/${encodeURIComponent(sid)}/participants`, {
+    method: "POST",
+    json: { email, participants },
+  });
+}
+
+export async function removeParticipant({ sid, email, participantEmail }) {
+  return request(`/api/sessions/${encodeURIComponent(sid)}/participants`, {
+    method: "DELETE",
+    json: { email, participantEmail },
+  });
+}
+
+export async function fetchMessages({ sid, email }) {
+  return request(`/api/sessions/${encodeURIComponent(sid)}/messages?email=${encodeURIComponent(email)}`);
+}
+
+export async function sendMessage({ sid, email, body, recipient, kind }) {
+  return request(`/api/sessions/${encodeURIComponent(sid)}/messages`, {
+    method: "POST",
+    json: { email, body, recipient, kind },
+  });
+}
+
+export async function fetchNotifications({ email }) {
+  return request(`/api/notifications?email=${encodeURIComponent(email)}`);
+}
+
+export async function markNotificationsRead({ email, ids }) {
+  return request("/api/notifications/mark-read", {
+    method: "POST",
+    json: { email, ids },
+  });
+}

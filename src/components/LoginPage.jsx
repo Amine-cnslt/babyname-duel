@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 /** Modern login page for BabyName Duel (footer removed) */
 export default function LoginPage({ onGoogleSignIn, onEmailSignIn, onSignup, onRequestReset, onConfirmReset }) {
@@ -9,6 +9,40 @@ export default function LoginPage({ onGoogleSignIn, onEmailSignIn, onSignup, onR
   const [confirm, setConfirm] = useState("");
   const [remember, setRemember] = useState(false);
   const [showPwd, setShowPwd] = useState(false);
+  const [showResetPwd, setShowResetPwd] = useState(false);
+  const resetPwdRef = useRef(null);
+  const resetConfirmRef = useRef(null);
+  const applyResetType = useCallback((visible) => {
+    const nextType = visible ? "text" : "password";
+    const security = visible ? "none" : "";
+    [resetPwdRef.current, resetConfirmRef.current].forEach((input) => {
+      if (!input) return;
+      input.setAttribute("type", nextType);
+      if (security) {
+        input.style.WebkitTextSecurity = security;
+      } else {
+        input.style.removeProperty("WebkitTextSecurity");
+      }
+    });
+  }, []);
+  const scheduleResetType = useCallback((visible) => {
+    applyResetType(visible);
+    if (typeof requestAnimationFrame === "function") {
+      requestAnimationFrame(() => applyResetType(visible));
+    }
+    setTimeout(() => applyResetType(visible), 0);
+    setTimeout(() => applyResetType(visible), 60);
+  }, [applyResetType]);
+  useEffect(() => {
+    scheduleResetType(showResetPwd);
+  }, [scheduleResetType, showResetPwd]);
+  const toggleResetVisibility = () => {
+    setShowResetPwd((prev) => {
+      const next = !prev;
+      scheduleResetType(next);
+      return next;
+    });
+  };
   const [loading, setLoading] = useState(false);
   const [resetToken, setResetToken] = useState("");
   const [resetPassword, setResetPassword] = useState("");
@@ -24,6 +58,8 @@ export default function LoginPage({ onGoogleSignIn, onEmailSignIn, onSignup, onR
     setNotice(null);
     setNoticeType("info");
     setShowPwd(false);
+    setShowResetPwd(false);
+    scheduleResetType(false);
     if (next === "signin") {
       setPassword("");
       setConfirm("");
@@ -246,40 +282,44 @@ export default function LoginPage({ onGoogleSignIn, onEmailSignIn, onSignup, onR
                 />
                 <div className="relative">
                   <input
-                    type={showPwd ? "text" : "password"}
+                    ref={resetPwdRef}
+                    type={showResetPwd ? "text" : "password"}
                     className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 pr-10 text-slate-800 placeholder-slate-400 outline-none ring-indigo-200 transition focus:border-indigo-400 focus:ring"
                     placeholder="New password"
                     value={resetPassword}
                     onChange={(e) => setResetPassword(e.target.value)}
                     required
                     minLength={6}
+                    autoComplete="new-password"
                   />
                   <button
                     type="button"
-                    onClick={() => setShowPwd((s) => !s)}
+                    onClick={toggleResetVisibility}
                     className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md p-1 text-slate-400 hover:bg-slate-100"
-                    aria-label={showPwd ? "Hide password" : "Show password"}
+                    aria-label={showResetPwd ? "Hide password" : "Show password"}
                   >
-                    {showPwd ? "🙈" : "👁️"}
+                    {showResetPwd ? "🙈" : "👁️"}
                   </button>
                 </div>
                 <div className="relative">
                   <input
-                    type={showPwd ? "text" : "password"}
+                    ref={resetConfirmRef}
+                    type={showResetPwd ? "text" : "password"}
                     className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 pr-10 text-slate-800 placeholder-slate-400 outline-none ring-indigo-200 transition focus:border-indigo-400 focus:ring"
                     placeholder="Confirm password"
                     value={resetConfirm}
                     onChange={(e) => setResetConfirm(e.target.value)}
                     required
                     minLength={6}
+                    autoComplete="new-password"
                   />
                   <button
                     type="button"
-                    onClick={() => setShowPwd((s) => !s)}
+                    onClick={toggleResetVisibility}
                     className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md p-1 text-slate-400 hover:bg-slate-100"
-                    aria-label={showPwd ? "Hide password" : "Show password"}
+                    aria-label={showResetPwd ? "Hide password" : "Show password"}
                   >
-                    {showPwd ? "🙈" : "👁️"}
+                    {showResetPwd ? "🙈" : "👁️"}
                   </button>
                 </div>
               </>
