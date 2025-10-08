@@ -17,6 +17,7 @@ Optional:
 import json
 import os
 import re
+import time
 from datetime import datetime, timedelta
 from typing import Optional
 from uuid import uuid4
@@ -29,6 +30,7 @@ from sqlalchemy import (
     ForeignKey, UniqueConstraint, text as sql_text, func, inspect, Boolean
 )
 from sqlalchemy.orm import declarative_base, sessionmaker, scoped_session, relationship
+from sqlalchemy.exc import OperationalError
 from dotenv import load_dotenv
 from google.oauth2 import id_token as google_id_token
 from google.auth.transport import requests as google_requests
@@ -85,30 +87,41 @@ SessionLocal = scoped_session(sessionmaker(bind=engine, autoflush=False, autocom
 Base = declarative_base()
 
 
-def ensure_schema():
-    inspector = inspect(engine)
-    if not inspector.has_table('sessions'):
-        Base.metadata.create_all(bind=engine)
-        return
-    with engine.begin() as conn:
-        session_cols = {col['name'] for col in inspector.get_columns('sessions')}
-        if 'max_names' not in session_cols:
-            conn.execute(sql_text('ALTER TABLE sessions ADD COLUMN max_names INTEGER DEFAULT 10'))
-        if 'invites_locked' not in session_cols:
-            conn.execute(sql_text('ALTER TABLE sessions ADD COLUMN invites_locked INTEGER DEFAULT 0'))
-        if 'name_focus' not in session_cols:
-            conn.execute(sql_text("ALTER TABLE sessions ADD COLUMN name_focus VARCHAR(16) DEFAULT 'mix'"))
-        conn.execute(sql_text('UPDATE sessions SET max_names = 10 WHERE max_names IS NULL OR max_names < 5'))
-        conn.execute(sql_text('UPDATE sessions SET invites_locked = 0 WHERE invites_locked IS NULL'))
-        conn.execute(sql_text("UPDATE sessions SET name_focus = 'mix' WHERE name_focus IS NULL OR name_focus = ''"))
-    if not inspector.has_table('owner_list_states'):
-        OwnerListState.__table__.create(bind=engine, checkfirst=True)
-    if not inspector.has_table('messages'):
-        Message.__table__.create(bind=engine, checkfirst=True)
-    if not inspector.has_table('notifications'):
-        Notification.__table__.create(bind=engine, checkfirst=True)
-    if not inspector.has_table('name_metadata'):
-        NameMetadata.__table__.create(bind=engine, checkfirst=True)
+def ensure_schema(retries: int = 5, delay: float = 2.0):
+    attempt = 0
+    while True:
+        try:
+            inspector = inspect(engine)
+            if not inspector.has_table('sessions'):
+                Base.metadata.create_all(bind=engine)
+                return
+            with engine.begin() as conn:
+                session_cols = {col['name'] for col in inspector.get_columns('sessions')}
+                if 'max_names' not in session_cols:
+                    conn.execute(sql_text('ALTER TABLE sessions ADD COLUMN max_names INTEGER DEFAULT 10'))
+                if 'invites_locked' not in session_cols:
+                    conn.execute(sql_text('ALTER TABLE sessions ADD COLUMN invites_locked INTEGER DEFAULT 0'))
+                if 'name_focus' not in session_cols:
+                    conn.execute(sql_text("ALTER TABLE sessions ADD COLUMN name_focus VARCHAR(16) DEFAULT 'mix'"))
+                conn.execute(sql_text('UPDATE sessions SET max_names = 10 WHERE max_names IS NULL OR max_names < 5'))
+                conn.execute(sql_text('UPDATE sessions SET invites_locked = 0 WHERE invites_locked IS NULL'))
+                conn.execute(sql_text("UPDATE sessions SET name_focus = 'mix' WHERE name_focus IS NULL OR name_focus = ''"))
+            if not inspector.has_table('owner_list_states'):
+                OwnerListState.__table__.create(bind=engine, checkfirst=True)
+            if not inspector.has_table('messages'):
+                Message.__table__.create(bind=engine, checkfirst=True)
+            if not inspector.has_table('notifications'):
+                Notification.__table__.create(bind=engine, checkfirst=True)
+            if not inspector.has_table('name_metadata'):
+                NameMetadata.__table__.create(bind=engine, checkfirst=True)
+            return
+        except OperationalError as exc:
+            attempt += 1
+            if attempt > retries:
+                raise
+            sleep_for = delay * attempt
+            print(f"ensure_schema retry {attempt}/{retries} after OperationalError: {exc}. Sleeping {sleep_for}s")
+            time.sleep(sleep_for)
 
 
 def seed_owner_states():
