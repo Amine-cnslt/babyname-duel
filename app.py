@@ -32,11 +32,7 @@ from sqlalchemy.orm import declarative_base, sessionmaker, scoped_session, relat
 from dotenv import load_dotenv
 from google.oauth2 import id_token as google_id_token
 from google.auth.transport import requests as google_requests
-
-try:
-    from openai import OpenAI
-except ImportError:  # pragma: no cover - optional dependency
-    OpenAI = None  # type: ignore
+import requests as http_requests
 
 # Load .env.local using an absolute path (more reliable than relative cwd)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -54,8 +50,7 @@ GOOGLE_OAUTH_CLIENT_ID = os.getenv("GOOGLE_OAUTH_CLIENT_ID")
 FIREBASE_PROJECT_ID = os.getenv("FIREBASE_PROJECT_ID")
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
-openai_client = OpenAI(api_key=OPENAI_API_KEY) if (OPENAI_API_KEY and OpenAI) else None
+OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-3.5-turbo")
 
 # ----------------------------------------------------------------------------
 # App & Config
@@ -223,33 +218,43 @@ def _get_name_metadata_map(db, names) -> dict:
 
 
 def _generate_name_fact(name: str) -> Optional[str]:
-    if not openai_client:
+    if not OPENAI_API_KEY:
         return None
+
     prompt = (
         "In no more than 22 words, give a friendly origin and meaning summary for the baby name "
         f"'{name}'. Focus on historical or cultural context."
     )
+
+    headers = {
+        "Authorization": f"Bearer {OPENAI_API_KEY}",
+        "Content-Type": "application/json",
+    }
+    payload = {
+        "model": OPENAI_MODEL,
+        "messages": [
+            {"role": "system", "content": "You are a friendly baby name expert."},
+            {"role": "user", "content": prompt},
+        ],
+        "max_tokens": 120,
+        "temperature": 0.6,
+    }
+
     try:
-        response = openai_client.responses.create(
-            model=OPENAI_MODEL,
-            input=[
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "text", "text": prompt}
-                    ],
-                }
-            ],
-            max_output_tokens=120,
+        resp = http_requests.post(
+            "https://api.openai.com/v1/chat/completions",
+            headers=headers,
+            json=payload,
+            timeout=15,
         )
-    except Exception as exc:  # pragma: no cover - external service
+        resp.raise_for_status()
+        data = resp.json()
+        text = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+    except (http_requests.RequestException, ValueError, KeyError, IndexError) as exc:  # pragma: no cover
         print(f"Failed to generate name metadata for {name}: {exc}")
         return None
 
-    try:
-        text = (response.output_text or "").strip()
-    except AttributeError:  # pragma: no cover - safety net for SDK changes
-        text = ""
+    text = text.strip() if text else ""
     if not text:
         return None
     return text[:240].strip()
@@ -262,7 +267,7 @@ def _prime_name_metadata(db, names) -> dict:
 
     existing = _get_name_metadata_map(db, names)
     missing = [name for name in names if _normalize_name_key(name) not in existing]
-    if not missing or not openai_client:
+    if not missing or not OPENAI_API_KEY:
         return existing
 
     for name in missing:
