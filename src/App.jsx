@@ -1,8 +1,10 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowLeft,
   Baby,
   Bell,
+  Music,
+  VolumeX,
   Loader2,
   LogOut,
   Lock,
@@ -15,14 +17,20 @@ import {
 } from "lucide-react";
 import LoginPage from "./components/LoginPage";
 import * as api from "./api";
-import { extractGoogleIdToken, signInWithGooglePopup, signOutFirebase } from "./firebase";
+import {
+  extractGoogleIdToken,
+  signInWithGooglePopup,
+  signOutFirebase,
+  getGoogleRedirectResult,
+} from "./firebase";
+import { createSoundscape } from "./soundscape.js";
 
 const Button = ({ children, className = "", variant = "secondary", ...props }) => {
-  const base = "inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition";
+  const base = "inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-all duration-200 hover:-translate-y-0.5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2";
   const variants = {
-    primary: "text-white bg-gradient-to-r from-blue-500 via-indigo-500 to-rose-500 hover:opacity-90",
-    secondary: "border border-slate-200 bg-white text-slate-700 hover:bg-slate-50",
-    subtle: "text-slate-600 hover:bg-slate-100",
+    primary: "text-white bg-gradient-to-r from-pink-500 via-indigo-500 to-sky-500 shadow-lg shadow-pink-200/40 hover:shadow-xl",
+    secondary: "border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 shadow-sm",
+    subtle: "text-slate-600 hover:bg-white/60",
     danger: "border border-rose-200 text-rose-600 hover:bg-rose-50",
   };
   return (
@@ -33,8 +41,21 @@ const Button = ({ children, className = "", variant = "secondary", ...props }) =
 };
 
 const Card = ({ children, className = "" }) => (
-  <div className={`rounded-2xl bg-white shadow-sm border border-slate-200 ${className}`}>{children}</div>
+  <div className={`bnd-card-pop rounded-2xl bg-white/95 shadow-md border border-slate-200/80 backdrop-blur-sm ${className}`}>{children}</div>
 );
+
+const FloatingDecor = React.memo(() => (
+  <div className="bnd-floating">
+    <span style={{ top: "12%", left: "6%" }}>🍼</span>
+    <span style={{ top: "18%", right: "12%" }}>🧸</span>
+    <span style={{ bottom: "16%", left: "18%" }}>🌙</span>
+    <span style={{ bottom: "28%", right: "22%" }}>🎀</span>
+    <span style={{ top: "32%", left: "42%" }}>👶</span>
+    <div className="bnd-bubble" style={{ top: "8%", right: "6%" }} />
+    <div className="bnd-bubble" style={{ bottom: "10%", left: "8%" }} />
+    <div className="bnd-bubble" style={{ top: "48%", left: "12%" }} />
+  </div>
+));
 
 const formatDate = (value) => {
   if (!value) return "";
@@ -58,12 +79,12 @@ const useQueryParams = () => {
   return entries;
 };
 
-const TopNav = ({ user, onSignOut }) => (
+const TopNav = ({ user, onSignOut, ambientEnabled, onToggleAmbient }) => (
   <div className="sticky top-0 z-20 w-full bg-white/80 backdrop-blur border-b border-slate-200">
     <div className="mx-auto max-w-6xl px-4 py-3 flex items-center justify-between">
       <div className="flex items-center gap-3 text-slate-800 font-semibold">
-        <div className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-blue-50">
-          <Baby className="h-5 w-5 text-blue-600" />
+        <div className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br from-pink-100 via-sky-100 to-indigo-100 text-pink-500 animate-soft-bounce shadow-inner">
+          <Baby className="h-5 w-5" />
         </div>
         <div className="flex flex-col">
           <span className="text-lg font-bold">
@@ -73,6 +94,15 @@ const TopNav = ({ user, onSignOut }) => (
         </div>
       </div>
       <div className="flex items-center gap-3">
+        <Button
+          variant="subtle"
+          className="text-xs"
+          onClick={onToggleAmbient}
+          title={ambientEnabled ? "Mute lullaby ambience" : "Play gentle ambience"}
+        >
+          {ambientEnabled ? <VolumeX className="h-4 w-4" /> : <Music className="h-4 w-4" />}
+          <span>{ambientEnabled ? "Mute" : "Lullaby"}</span>
+        </Button>
         {user ? (
           <span className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-600 shadow-sm">
             {user.email}
@@ -318,7 +348,10 @@ const SessionsDashboard = ({ sessions, activeSid, onSelect, onOpenCreate, loadin
     <Card className="p-0">
       <div className="flex items-center justify-between gap-3 px-5 pt-5">
         <div>
-          <div className="text-base font-semibold text-slate-700">Sessions</div>
+          <div className="flex items-center gap-2 text-base font-semibold text-slate-700">
+            <span role="img" aria-hidden="true">🍼</span>
+            Sessions
+          </div>
           <div className="text-xs text-slate-500">Switch between active and archived duels.</div>
         </div>
         <Button variant="primary" onClick={onOpenCreate} disabled={loading}>
@@ -531,7 +564,10 @@ const ParticipantsPanel = ({
     <Card className="p-5 space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <div className="text-base font-semibold text-slate-800">Participants</div>
+          <div className="flex items-center gap-2 text-base font-semibold text-slate-800">
+            <span role="img" aria-hidden="true">🤝</span>
+            Participants
+          </div>
           <div className="text-xs text-slate-500">Owner can invite or remove participants. Existing users join automatically.</div>
           <div className="text-xs text-indigo-600">Name theme: {focusLabel}</div>
         </div>
@@ -626,12 +662,18 @@ const ListEditor = ({
 }) => {
   const names = listState.names;
   const ranks = listState.ranks;
+  const entries = names
+    .map((value, index) => ({ name: value, rank: ranks[index] ?? "", index }))
+    .filter((item) => (canEdit ? true : Boolean(item.name && item.name.trim())));
 
   return (
     <Card className="p-5 space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <div className="text-base font-semibold text-slate-800">Your list</div>
+          <div className="flex items-center gap-2 text-base font-semibold text-slate-800">
+            <span role="img" aria-hidden="true">🧸</span>
+            Your list
+          </div>
           <div className="text-xs text-slate-500">
             Provide exactly {requiredNames} distinct names. Assign each a ranking from 1 to {requiredNames} with no duplicates. Drafts allow blanks or rank 0.
           </div>
@@ -644,53 +686,67 @@ const ListEditor = ({
         </span>
       </div>
 
-      <div className="grid gap-2">
-        {names.map((value, index) => (
-          <div key={index} className="grid grid-cols-[minmax(0,1fr)_120px] gap-2">
-            <input
-              className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
-              placeholder={`Name ${index + 1}`}
-              value={value}
-              onChange={(e) => {
-                if (!canEdit || busy) return;
-                onChangeName(index, e.target.value);
-              }}
-              disabled={!canEdit || busy}
-            />
-            <select
-              className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
-              value={ranks[index] ?? ""}
-              onChange={(e) => {
-                if (!canEdit || busy) return;
-                onChangeRank(index, Number(e.target.value));
-              }}
-              disabled={!canEdit || busy}
-            >
-              <option value="">Rank</option>
-              <option value={0}>0</option>
-              {Array.from({ length: requiredNames }, (_, i) => i + 1).map((rank) => (
-                <option key={rank} value={rank}>
-                  {rank}
-                </option>
-              ))}
-            </select>
-          </div>
-        ))}
-      </div>
-
       {canEdit ? (
-        <div className="flex justify-end gap-2">
-          <Button onClick={onSave} disabled={!canEdit || busy}>
-            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-            Save draft
-          </Button>
-          <Button variant="primary" onClick={onSubmit} disabled={!canEdit || busy}>
-            Submit for voting
-          </Button>
-        </div>
+        <>
+          <div className="grid gap-2">
+            {names.map((value, index) => (
+              <div key={index} className="grid grid-cols-[minmax(0,1fr)_120px] gap-2">
+                <input
+                  className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                  placeholder={`Name ${index + 1}`}
+                  value={value}
+                  onChange={(e) => {
+                    if (!canEdit || busy) return;
+                    onChangeName(index, e.target.value);
+                  }}
+                  disabled={!canEdit || busy}
+                />
+                <select
+                  className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                  value={ranks[index] ?? ""}
+                  onChange={(e) => {
+                    if (!canEdit || busy) return;
+                    onChangeRank(index, Number(e.target.value));
+                  }}
+                  disabled={!canEdit || busy}
+                >
+                  <option value="">Rank</option>
+                  <option value={0}>0</option>
+                  {Array.from({ length: requiredNames }, (_, i) => i + 1).map((rank) => (
+                    <option key={rank} value={rank}>
+                      {rank}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            ))}
+          </div>
+
+          <div className="flex justify-end gap-2">
+            <Button onClick={onSave} disabled={!canEdit || busy}>
+              {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+              Save draft
+            </Button>
+            <Button variant="primary" onClick={onSubmit} disabled={!canEdit || busy}>
+              Submit for voting
+            </Button>
+          </div>
+        </>
       ) : (
-        <div className="rounded-lg border border-emerald-100 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
-          Your list has been submitted and is now read-only.
+        <div className="space-y-3">
+          <div className="rounded-lg border border-emerald-100 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
+            Your list has been submitted and is now read-only.
+          </div>
+          <div className="grid gap-2">
+            {entries.map(({ name, rank, index }) => (
+              <div key={index} className="grid grid-cols-[minmax(0,1fr)_100px] gap-2 text-sm">
+                <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-slate-700">{name}</div>
+                <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-slate-600">
+                  Rank {rank || "-"}
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       )}
     </Card>
@@ -704,6 +760,7 @@ const ScoringPanel = ({
   requiredNames,
   nameFocus,
   draftState,
+  completedScores = {},
   onSaveDraft,
   onSubmitScores,
   submitting,
@@ -726,91 +783,150 @@ const ScoringPanel = ({
 
   return (
     <div className="space-y-4">
-      {otherLists.map((entry) => (
-        <Card key={entry.ownerUid} className="p-5 space-y-3">
-          <div className="flex items-center justify-between">
-            <div>
-              <div className="text-base font-semibold text-slate-800">Score {entry.ownerUid}</div>
-              <div className="text-xs text-slate-500">Assign each name a rank 1…{requiredNames}. Use every rank exactly once.</div>
-              <div className="text-xs text-indigo-600">Focus: {NAME_FOCUS_LABELS[nameFocus] || NAME_FOCUS_LABELS.mix}</div>
-            </div>
-          </div>
-          <div className="grid gap-2">
-            {entry.names.map((name) => {
-              const scoreRow = scores[entry.ownerUid]?.[name];
-              return (
-                <div key={name} className="grid grid-cols-[minmax(0,1fr)_160px] gap-2 text-sm">
-                  <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-slate-700">{name}</div>
-                  <div className="flex items-center gap-2">
-                    <select
-                      className="flex-1 rounded-lg border border-slate-300 px-3 py-2"
-                      value={scoreRow?.value ?? ""}
-                      onChange={(e) => scoreRow?.set(e.target.value)}
-                    >
-                      <option value="">Rank</option>
-                      {Array.from({ length: requiredNames }, (_, i) => i + 1).map((rank) => (
-                        <option key={rank} value={rank}>
-                          {rank}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
+      {otherLists.map((entry) => {
+        const isComplete = !!completedScores?.[entry.ownerUid];
+        return (
+          <Card key={entry.ownerUid} className="p-5 space-y-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="flex items-center gap-2 text-base font-semibold text-slate-800">
+                  <span role="img" aria-hidden="true">✨</span>
+                  Score {entry.ownerUid}
                 </div>
-              );
-            })}
-          </div>
-          <div className="flex justify-end gap-2">
-            <Button
-              variant="secondary"
-              onClick={() => onSaveDraft(entry.ownerUid)}
-              disabled={
-                submitting === entry.ownerUid ||
-                !(draftState?.[entry.ownerUid] && Object.keys(draftState[entry.ownerUid]).length)
-              }
-            >
-              Save draft
-            </Button>
-            <Button
-              variant="primary"
-              onClick={() => onSubmitScores(entry.ownerUid)}
-              disabled={submitting === entry.ownerUid}
-            >
-              {submitting === entry.ownerUid ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-              Submit scores
-            </Button>
-          </div>
-        </Card>
-      ))}
+                <div className="text-xs text-slate-500">Assign each name a rank 1…{requiredNames}. Use every rank exactly once.</div>
+                <div className="text-xs text-indigo-600">Focus: {NAME_FOCUS_LABELS[nameFocus] || NAME_FOCUS_LABELS.mix}</div>
+              </div>
+              {isComplete ? (
+                <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-600">
+                  Submitted
+                </span>
+              ) : null}
+            </div>
+            <div className="grid gap-2">
+              {entry.names.map((name) => {
+                const scoreRow = scores[entry.ownerUid]?.[name];
+                if (isComplete) {
+                  return (
+                    <div key={name} className="grid grid-cols-[minmax(0,1fr)_160px] gap-2 text-sm">
+                      <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-slate-700">{name}</div>
+                      <div className="rounded-lg border border-slate-200 bg-emerald-50 px-3 py-2 text-emerald-700">
+                        Rank {scoreRow?.value || "-"}
+                      </div>
+                    </div>
+                  );
+                }
+                return (
+                  <div key={name} className="grid grid-cols-[minmax(0,1fr)_160px] gap-2 text-sm">
+                    <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-slate-700">{name}</div>
+                    <div className="flex items-center gap-2">
+                      <select
+                        className="flex-1 rounded-lg border border-slate-300 px-3 py-2"
+                        value={scoreRow?.value ?? ""}
+                        onChange={(e) => scoreRow?.set(e.target.value)}
+                        disabled={submitting === entry.ownerUid}
+                      >
+                        <option value="">Rank</option>
+                        {Array.from({ length: requiredNames }, (_, i) => i + 1).map((rank) => (
+                          <option key={rank} value={rank}>
+                            {rank}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            {isComplete ? (
+              <div className="rounded-lg border border-emerald-100 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
+                Thanks! Your scores are locked in.
+              </div>
+            ) : (
+              <div className="flex justify-end gap-2">
+                <Button
+                  variant="secondary"
+                  onClick={() => onSaveDraft(entry.ownerUid)}
+                  disabled={
+                    submitting === entry.ownerUid ||
+                    !(draftState?.[entry.ownerUid] && Object.keys(draftState[entry.ownerUid]).length)
+                  }
+                >
+                  Save draft
+                </Button>
+                <Button
+                  variant="primary"
+                  onClick={() => onSubmitScores(entry.ownerUid)}
+                  disabled={submitting === entry.ownerUid}
+                >
+                  {submitting === entry.ownerUid ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                  Submit scores
+                </Button>
+              </div>
+            )}
+          </Card>
+        );
+      })}
     </div>
   );
 };
 
-const ResultsPanel = ({ lists, scores, requiredNames, invitesLocked }) => {
+const ResultsPanel = ({ lists, scores, requiredNames, invitesLocked, onTopTieChange }) => {
   const aggregated = useMemo(() => {
-    if (!invitesLocked || !lists) return [];
-    const tally = {};
+    if (!invitesLocked || !lists) {
+      return { ranking: [], topNames: [] };
+    }
+
+    const perName = {};
+
     Object.entries(scores || {}).forEach(([ownerUid, entries]) => {
-      Object.entries(entries).forEach(([name, meta]) => {
-        if (typeof meta.value !== "number") return;
-        tally[ownerUid] = tally[ownerUid] || { total: 0, count: 0, names: {} };
-        tally[ownerUid].total += meta.value;
-        tally[ownerUid].count += 1;
-        tally[ownerUid].names[name] = (tally[ownerUid].names[name] || 0) + meta.value;
+      Object.entries(entries || {}).forEach(([name, meta]) => {
+        if (typeof meta?.value !== "number") return;
+        const bucket = perName[name] || {
+          name,
+          total: 0,
+          count: 0,
+          owners: {},
+        };
+        bucket.total += meta.value;
+        bucket.count += 1;
+        bucket.owners[ownerUid] = meta.value;
+        perName[name] = bucket;
       });
     });
-    return Object.entries(tally)
-      .map(([ownerUid, entry]) => ({
-        ownerUid,
+
+    const ranking = Object.values(perName)
+      .map((entry) => ({
+        ...entry,
         average: entry.count ? entry.total / entry.count : 0,
-        detail: entry.names,
       }))
-      .sort((a, b) => a.average - b.average);
+      .sort((a, b) => {
+        if (a.total === b.total) {
+          return a.name.localeCompare(b.name);
+        }
+        return a.total - b.total;
+      });
+
+    const topTotal = ranking.length ? ranking[0].total : null;
+    const topNames = topTotal === null ? [] : ranking.filter((row) => row.total === topTotal);
+
+    return { ranking, topNames };
   }, [scores, lists, invitesLocked]);
+
+  const topTie = aggregated.topNames.length > 1;
+  const winnerNames = aggregated.topNames.map((row) => row.name);
+  const winnerTotal = aggregated.topNames.length ? aggregated.topNames[0].total : null;
+
+  useEffect(() => {
+    onTopTieChange?.(topTie);
+  }, [onTopTieChange, topTie]);
 
   return (
     <Card className="p-5 space-y-3">
       <div className="flex items-center justify-between">
-        <div className="text-base font-semibold text-slate-800">Results</div>
+        <div className="flex items-center gap-2 text-base font-semibold text-slate-800">
+          <span role="img" aria-hidden="true">🎉</span>
+          Results
+        </div>
         <div className="text-xs text-slate-500">
           {invitesLocked
             ? "Scores reveal once everyone finishes. Lower scores are better."
@@ -822,32 +938,46 @@ const ResultsPanel = ({ lists, scores, requiredNames, invitesLocked }) => {
         <div className="rounded-lg border border-dashed border-slate-200 px-3 py-4 text-sm text-slate-500">
           Waiting for the owner to lock invites before revealing totals.
         </div>
-      ) : (
+      ) : aggregated.ranking.length ? (
         <div className="space-y-3">
-          {aggregated.length ? (
-            aggregated.map((row, index) => (
-              <div key={row.ownerUid} className="rounded-lg border border-slate-200 px-3 py-2">
-                <div className="flex items-center justify-between">
-                  <div className="font-semibold text-slate-700">
-                    #{index + 1} · {row.ownerUid}
-                  </div>
-                  <div className="text-sm text-slate-500">Average rank: {row.average.toFixed(2)}</div>
+          <div className={`rounded-lg border px-3 py-3 text-sm ${
+            topTie ? "border-amber-200 bg-amber-50 text-amber-700" : "border-emerald-200 bg-emerald-50 text-emerald-700"
+          }`}>
+            {topTie ? (
+              <>
+                Tie detected for first place between {winnerNames.join(", ")}. Plan a tie-break vote focused on these names.
+              </>
+            ) : (
+              <>
+                Current winner: <strong>{winnerNames[0]}</strong> with a total score of {winnerTotal}.
+              </>
+            )}
+          </div>
+
+          {aggregated.ranking.map((row, index) => (
+            <div key={row.name} className="rounded-lg border border-slate-200 px-3 py-2">
+              <div className="flex items-center justify-between">
+                <div className="font-semibold text-slate-700">
+                  #{index + 1} · {row.name}
                 </div>
-                <div className="mt-1 grid gap-1 text-xs text-slate-500">
-                  {Object.entries(row.detail).map(([name, value]) => (
-                    <div key={name} className="flex justify-between">
-                      <span>{name}</span>
-                      <span>Score sum: {value}</span>
-                    </div>
-                  ))}
+                <div className="text-sm text-slate-500">
+                  Total: {row.total} · Average: {row.average.toFixed(2)}
                 </div>
               </div>
-            ))
-          ) : (
-            <div className="rounded-lg border border-dashed border-slate-200 px-3 py-4 text-sm text-slate-500">
-              No scores yet.
+              <div className="mt-1 grid gap-1 text-xs text-slate-500">
+                {Object.entries(row.owners).map(([ownerUid, score]) => (
+                  <div key={ownerUid} className="flex justify-between">
+                    <span>Scored by {ownerUid}</span>
+                    <span>Rank: {score}</span>
+                  </div>
+                ))}
+              </div>
             </div>
-          )}
+          ))}
+        </div>
+      ) : (
+        <div className="rounded-lg border border-dashed border-slate-200 px-3 py-4 text-sm text-slate-500">
+          No scores yet.
         </div>
       )}
     </Card>
@@ -867,7 +997,10 @@ const MessagesPanel = ({ messages, onSend, busy, participants, currentUser }) =>
 
   return (
     <Card className="p-5 space-y-4">
-      <div className="text-base font-semibold text-slate-800">Messages</div>
+      <div className="flex items-center gap-2 text-base font-semibold text-slate-800">
+        <span role="img" aria-hidden="true">💬</span>
+        Messages
+      </div>
       <div className="max-h-60 overflow-y-auto space-y-2 pr-1">
         {messages.length ? (
           messages.map((message) => (
@@ -944,6 +1077,7 @@ export default function App() {
   const [messages, setMessages] = useState([]);
   const [listDraft, setListDraft] = useState({ names: [], ranks: [], status: "draft" });
   const [scoreDrafts, setScoreDrafts] = useState({});
+  const [completedScores, setCompletedScores] = useState({});
   const [notifications, setNotifications] = useState([]);
   const [sessionBusy, setSessionBusy] = useState(false);
   const [scoreSubmitting, setScoreSubmitting] = useState(null);
@@ -953,8 +1087,86 @@ export default function App() {
   const [directMessageBusy, setDirectMessageBusy] = useState(false);
   const [pendingJoin, setPendingJoin] = useState(null);
   const [createOpen, setCreateOpen] = useState(false);
+  const [ambientEnabled, setAmbientEnabled] = useState(false);
+
+  const soundscapeRef = useRef(null);
+  const notificationCountRef = useRef(0);
+  const notificationsInitializedRef = useRef(false);
 
   const queryParams = useQueryParams();
+
+  useEffect(() => {
+    soundscapeRef.current = createSoundscape();
+    return () => {
+      soundscapeRef.current?.dispose?.();
+    };
+  }, []);
+
+  const ensureAudioContext = useCallback(() => {
+    const manager = soundscapeRef.current;
+    if (!manager) return null;
+    return manager.init();
+  }, []);
+
+  const playToken = useCallback((type) => {
+    const manager = soundscapeRef.current;
+    if (!manager) return;
+    manager.init();
+    manager.playToken(type);
+  }, []);
+
+  const toggleAmbient = useCallback(() => {
+    const manager = soundscapeRef.current;
+    if (!manager) return;
+    setAmbientEnabled((prev) => {
+      const next = !prev;
+      manager.init();
+      manager.toggleAmbient(next);
+      return next;
+    });
+  }, []);
+
+  const processGoogleAuthResult = useCallback(
+    async (result) => {
+      if (!result?.user) {
+        throw new Error("Google sign-in failed");
+      }
+      const firebaseUser = result.user;
+      let backendUser = null;
+      let idToken = null;
+      if (typeof firebaseUser.getIdToken === "function") {
+        idToken = await firebaseUser.getIdToken().catch(() => null);
+      }
+      if (!idToken) {
+        idToken = extractGoogleIdToken(result);
+      }
+      if (idToken && typeof api.googleLogin === "function") {
+        try {
+          const res = await api.googleLogin({ idToken });
+          backendUser = res?.user ?? null;
+        } catch (err) {
+          console.error("Backend Google login failed", err);
+        }
+      }
+      const resolved = {
+        uid: backendUser?.uid || firebaseUser.email || firebaseUser.uid,
+        email: backendUser?.email || firebaseUser.email || "",
+        displayName:
+          backendUser?.displayName || firebaseUser.displayName || firebaseUser.email || "Google user",
+        photoURL: backendUser?.photoURL || firebaseUser.photoURL || null,
+        provider: "google",
+      };
+      if (!resolved.email) {
+        throw new Error("Google account is missing an email address");
+      }
+      setUser(resolved);
+      localStorage.setItem("bnd_user", JSON.stringify(resolved));
+      playToken("success");
+      return resolved;
+    },
+    [playToken, setUser],
+  );
+
 
   useEffect(() => {
     if (queryParams.sid && queryParams.token) {
@@ -963,23 +1175,51 @@ export default function App() {
   }, [queryParams.sid, queryParams.token]);
 
   useEffect(() => {
+    const resolveRedirect = async () => {
+      try {
+        const result = await getGoogleRedirectResult();
+        if (result) {
+          await processGoogleAuthResult(result);
+        }
+      } catch (err) {
+        console.error("Google redirect processing failed", err);
+        await signOutFirebase().catch(() => {});
+        alert(err.message || "Google sign-in failed");
+      }
+    };
+    resolveRedirect();
+  }, [processGoogleAuthResult]);
+
+  useEffect(() => {
     if (!user) return;
     const loadNotifications = async () => {
       try {
         const res = await api.fetchNotifications({ email: user.email });
         setNotifications(res.notifications || []);
+        const count = res.notifications?.length || 0;
+        if (notificationsInitializedRef.current && count > notificationCountRef.current) {
+          playToken("warning");
+        }
+        notificationCountRef.current = count;
+        notificationsInitializedRef.current = true;
       } catch (err) {
         console.error("Notifications load failed", err);
       }
     };
     loadNotifications();
-  }, [user]);
+  }, [playToken, user]);
 
   const refreshNotifications = async () => {
     if (!user) return;
     try {
       const res = await api.fetchNotifications({ email: user.email });
       setNotifications(res.notifications || []);
+      const count = res.notifications?.length || 0;
+      if (notificationsInitializedRef.current && count > notificationCountRef.current) {
+        playToken("warning");
+      }
+      notificationCountRef.current = count;
+      notificationsInitializedRef.current = true;
     } catch (err) {
       console.error(err);
     }
@@ -1119,6 +1359,19 @@ export default function App() {
       });
     }
     writeScoreDraftsToStorage(sessionData.sid, user?.email, cleanedStoredDrafts);
+    const completion = {};
+    Object.entries(draftScores).forEach(([ownerUid, ownerDraft]) => {
+      const values = Object.values(ownerDraft || {});
+      if (values.length === required) {
+        const normalized = values.map((value) => Number(value));
+        const unique = new Set(normalized);
+        const inRange = normalized.every((rank) => Number.isInteger(rank) && rank >= 1 && rank <= required);
+        if (inRange && unique.size === required) {
+          completion[ownerUid] = true;
+        }
+      }
+    });
+    setCompletedScores(completion);
     setScoreDrafts(mergedDrafts);
   };
 
@@ -1142,6 +1395,7 @@ export default function App() {
       setLists({});
       setScores({});
       setMessages([]);
+      setCompletedScores({});
       return;
     }
     loadSession(activeSid);
@@ -1158,9 +1412,11 @@ export default function App() {
         setActiveSid(res.session.sid);
       }
       setCreateOpen(false);
+      playToken("success");
     } catch (err) {
       console.error("Create session failed", err);
       alert(err.message || "Unable to create session");
+      playToken("warning");
     } finally {
       setCreatingSession(false);
     }
@@ -1177,6 +1433,7 @@ export default function App() {
     setMessages([]);
     setListDraft({ names: [], ranks: [], status: "draft" });
     setScoreDrafts({});
+    setCompletedScores({});
     setSessionBusy(false);
     await loadSessions();
   };
@@ -1234,9 +1491,11 @@ export default function App() {
       });
       await loadSession(sessionDoc.sid);
       await refreshNotifications();
+      playToken(finalize ? "success" : "neutral");
     } catch (err) {
       console.error("Save list failed", err);
       alert(err.message || "Unable to save list");
+      playToken("warning");
     } finally {
       setSessionBusy(false);
     }
@@ -1262,6 +1521,14 @@ export default function App() {
       } else {
         delete next[ownerUid];
       }
+      return next;
+    });
+    setCompletedScores((prev) => {
+      if (!prev[ownerUid]) {
+        return prev;
+      }
+      const next = { ...prev };
+      delete next[ownerUid];
       return next;
     });
   };
@@ -1292,6 +1559,10 @@ export default function App() {
 
   const handleSubmitScores = async (ownerUid) => {
     if (!sessionDoc || !user) return;
+    if (completedScores[ownerUid]) {
+      alert("Scores already submitted for this list.");
+      return;
+    }
     const required = sessionDoc.requiredNames || sessionDoc.maxNames || 0;
     const listEntry = lists?.[ownerUid];
     if (!listEntry) return;
@@ -1328,14 +1599,26 @@ export default function App() {
       }
       await loadSession(sessionDoc.sid);
       await refreshNotifications();
+      playToken("success");
       const stored = readScoreDraftsFromStorage(sessionDoc.sid, user.email);
       if (stored[ownerUid]) {
         delete stored[ownerUid];
         writeScoreDraftsToStorage(sessionDoc.sid, user.email, stored);
       }
+      setScoreDrafts((prev) => {
+        const next = { ...prev };
+        next[ownerUid] = names.reduce((acc, name) => {
+          acc[name] = draft[name];
+          return acc;
+        }, {});
+        return next;
+      });
+      setCompletedScores((prev) => ({ ...prev, [ownerUid]: true }));
+      alert("Scores submitted.");
     } catch (err) {
       console.error("Submit scores failed", err);
       alert(err.message || "Unable to submit scores");
+      playToken("warning");
     } finally {
       setScoreSubmitting(null);
     }
@@ -1343,6 +1626,10 @@ export default function App() {
 
   const handleSaveScoreDraft = (ownerUid) => {
     if (!sessionDoc || !user) return;
+    if (completedScores[ownerUid]) {
+      alert("Scores already submitted for this list.");
+      return;
+    }
     const ownerScores = scoreDrafts?.[ownerUid];
     if (!ownerScores || !Object.keys(ownerScores).length) {
       alert("Choose at least one rank before saving a draft.");
@@ -1366,9 +1653,11 @@ export default function App() {
         kind: recipient ? "message" : "message",
       });
       await loadSession(sessionDoc.sid);
+      playToken("neutral");
     } catch (err) {
       console.error("Send message failed", err);
       alert(err.message || "Unable to send message");
+      playToken("warning");
     } finally {
       setMessageBusy(false);
     }
@@ -1391,9 +1680,11 @@ export default function App() {
       });
       await refreshNotifications();
       await loadSession(sessionDoc.sid);
+      playToken("neutral");
     } catch (err) {
       console.error("Direct message failed", err);
       alert(err.message || "Unable to send message");
+      playToken("warning");
     } finally {
       setDirectMessageBusy(false);
     }
@@ -1418,9 +1709,11 @@ export default function App() {
         .join("\n");
       if (message) alert(message);
       await loadSession(sessionDoc.sid);
+      playToken("neutral");
     } catch (err) {
       console.error("Invite failed", err);
       alert(err.message || "Unable to invite participant");
+      playToken("warning");
     } finally {
       setInviteBusy(false);
     }
@@ -1436,9 +1729,11 @@ export default function App() {
         participantEmail: target,
       });
       await loadSession(sessionDoc.sid);
+      playToken("neutral");
     } catch (err) {
       console.error("Remove participant failed", err);
       alert(err.message || "Unable to remove participant");
+      playToken("warning");
     }
   };
 
@@ -1449,9 +1744,11 @@ export default function App() {
       await api.lockInvites({ sid: sessionDoc.sid, email: user.email });
       await loadSession(sessionDoc.sid);
       await refreshNotifications();
+      playToken("neutral");
     } catch (err) {
       console.error("Lock invites failed", err);
       alert(err.message || "Unable to lock invites");
+      playToken("warning");
     } finally {
       setLockBusy(false);
     }
@@ -1464,9 +1761,11 @@ export default function App() {
       await api.archiveSession({ sid: sessionDoc.sid, email: user.email });
       await loadSessions();
       setActiveSid(null);
+      playToken("neutral");
     } catch (err) {
       console.error("Archive failed", err);
       alert(err.message || "Unable to archive session");
+      playToken("warning");
     }
   };
 
@@ -1477,9 +1776,11 @@ export default function App() {
       await api.deleteSession({ sid: sessionDoc.sid, email: user.email });
       await loadSessions();
       setActiveSid(null);
+      playToken("alert");
     } catch (err) {
       console.error("Delete failed", err);
       alert(err.message || "Unable to delete session");
+      playToken("warning");
     }
   };
 
@@ -1495,6 +1796,16 @@ export default function App() {
       setLists({});
       setScores({});
       setMessages([]);
+      setListDraft({ names: [], ranks: [], status: "draft" });
+      setScoreDrafts({});
+      setCompletedScores({});
+      setNotifications([]);
+      setPendingJoin(null);
+      setCreateOpen(false);
+      notificationCountRef.current = 0;
+      notificationsInitializedRef.current = false;
+      setAmbientEnabled(false);
+      soundscapeRef.current?.toggleAmbient(false);
     }
   };
 
@@ -1505,36 +1816,15 @@ export default function App() {
     }
     try {
       const result = await signInWithGooglePopup();
-      const firebaseUser = result?.user;
-      if (!firebaseUser) throw new Error("Google sign-in failed");
-      let backendUser = null;
-      let idToken = null;
-      if (typeof firebaseUser.getIdToken === "function") {
-        idToken = await firebaseUser.getIdToken().catch(() => null);
+      if (!result) {
+        return; // redirect flow initiated; result handled after redirect
       }
-      if (!idToken) {
-        idToken = extractGoogleIdToken(result);
-      }
-      if (idToken && typeof api.googleLogin === "function") {
-        const res = await api.googleLogin({ idToken });
-        backendUser = res?.user ?? null;
-      }
-      const resolved = {
-        uid: backendUser?.uid || firebaseUser.email || firebaseUser.uid,
-        email: backendUser?.email || firebaseUser.email || "",
-        displayName: backendUser?.displayName || firebaseUser.displayName || firebaseUser.email || "Google user",
-        photoURL: backendUser?.photoURL || firebaseUser.photoURL || null,
-        provider: "google",
-      };
-      if (!resolved.email) {
-        throw new Error("Google account is missing an email address");
-      }
-      setUser(resolved);
-      localStorage.setItem("bnd_user", JSON.stringify(resolved));
+      await processGoogleAuthResult(result);
     } catch (err) {
       console.error(err);
       await signOutFirebase().catch(() => {});
       alert(err.message || "Google sign-in failed");
+      playToken("warning");
     }
   };
 
@@ -1544,9 +1834,11 @@ export default function App() {
       const u = { uid: res.user.email, email: res.user.email, displayName: res.user.displayName };
       setUser(u);
       localStorage.setItem("bnd_user", JSON.stringify(u));
+      playToken("success");
     } catch (err) {
       console.error(err);
       alert(err.message || "Email sign-in failed");
+      playToken("warning");
     }
   };
 
@@ -1556,25 +1848,34 @@ export default function App() {
       const u = { uid: res.user.email, email: res.user.email, displayName: res.user.displayName };
       setUser(u);
       localStorage.setItem("bnd_user", JSON.stringify(u));
+      playToken("success");
     } catch (err) {
       console.error(err);
       alert(err.message || "Sign up failed");
+      playToken("warning");
     }
   };
 
   const requiredNames = sessionDoc?.requiredNames || sessionDoc?.maxNames || 0;
   const isOwner = sessionDoc?.createdBy === user?.email;
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-800">
-      <TopNav
-        user={user}
-        onSignOut={handleSignOut}
-      />
+    <div className="relative min-h-screen text-slate-800">
+      <FloatingDecor />
+      <div className="relative z-10 min-h-screen">
+        <TopNav
+          user={user}
+          onSignOut={handleSignOut}
+          ambientEnabled={ambientEnabled}
+          onToggleAmbient={() => {
+            ensureAudioContext();
+            toggleAmbient();
+          }}
+        />
 
-      <main className="mx-auto max-w-6xl px-4 py-6">
-        {!user ? (
-          <LoginPage
-            onGoogleSignIn={handleSignInGoogle}
+        <main className="mx-auto max-w-6xl px-4 py-6">
+          {!user ? (
+            <LoginPage
+              onGoogleSignIn={handleSignInGoogle}
             onEmailSignIn={handleSignInEmail}
             onSignup={({ email, password, fullName }) => handleSignUp(email, password, fullName)}
             onRequestReset={(email) => api.requestPasswordReset({ email })}
@@ -1661,21 +1962,27 @@ export default function App() {
 
             <ScoringPanel
               lists={lists}
-              scores={scoringModel.result}
-              currentUser={user}
-              requiredNames={requiredNames}
-              nameFocus={sessionDoc.nameFocus}
-              draftState={scoreDrafts}
-              onSaveDraft={handleSaveScoreDraft}
-              onSubmitScores={handleSubmitScores}
-              submitting={scoreSubmitting}
-            />
+            scores={scoringModel.result}
+            currentUser={user}
+            requiredNames={requiredNames}
+            nameFocus={sessionDoc.nameFocus}
+            draftState={scoreDrafts}
+            completedScores={completedScores}
+            onSaveDraft={handleSaveScoreDraft}
+            onSubmitScores={handleSubmitScores}
+            submitting={scoreSubmitting}
+          />
 
             <ResultsPanel
               lists={lists}
               scores={scores}
               requiredNames={requiredNames}
               invitesLocked={sessionDoc.invitesLocked}
+              onTopTieChange={(isTie) => {
+                if (isTie) {
+                  playToken("alert");
+                }
+              }}
             />
 
             <MessagesPanel
@@ -1713,14 +2020,15 @@ export default function App() {
             )}
           </div>
         )}
-      </main>
+        </main>
 
-      <CreateSessionModal
-        open={createOpen}
-        busy={creatingSession}
-        onClose={() => (!creatingSession ? setCreateOpen(false) : null)}
-        onCreate={handleCreateSession}
-      />
+        <CreateSessionModal
+          open={createOpen}
+          busy={creatingSession}
+          onClose={() => (!creatingSession ? setCreateOpen(false) : null)}
+          onCreate={handleCreateSession}
+        />
+      </div>
     </div>
   );
 }

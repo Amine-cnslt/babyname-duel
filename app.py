@@ -232,6 +232,7 @@ class Session(Base):
     invites = relationship("SessionInvite", back_populates="session", cascade="all, delete-orphan")
     owner_states = relationship("OwnerListState", back_populates="session", cascade="all, delete-orphan")
     messages = relationship("Message", back_populates="session", cascade="all, delete-orphan")
+    notifications = relationship("Notification", back_populates="session", cascade="all, delete-orphan")
 
 class Member(Base):
     __tablename__ = "members"
@@ -317,7 +318,7 @@ class Notification(Base):
     read_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=now_utc, nullable=False)
 
-    session = relationship("Session")
+    session = relationship("Session", back_populates="notifications")
 
 
 ensure_schema()
@@ -1591,6 +1592,13 @@ def api_delete_session(sid):
             return jsonify({"ok": False, "error": "Only owners can delete"}), 403
 
         try:
+            db.query(Message).filter_by(session_id=sid).delete(synchronize_session=False)
+            db.query(Score).filter_by(session_id=sid).delete(synchronize_session=False)
+            db.query(ListItem).filter_by(session_id=sid).delete(synchronize_session=False)
+            db.query(SessionInvite).filter_by(session_id=sid).delete(synchronize_session=False)
+            db.query(OwnerListState).filter_by(session_id=sid).delete(synchronize_session=False)
+            db.query(Notification).filter_by(session_id=sid).delete(synchronize_session=False)
+            db.query(Member).filter_by(session_id=sid).delete(synchronize_session=False)
             db.delete(session)
             db.commit()
         except Exception as exc:
@@ -1742,4 +1750,6 @@ if __name__ == "__main__":
         pass
     print("DEBUG: entering __main__ block")
     Base.metadata.create_all(engine)
-    app.run(debug=True, host="127.0.0.1", port=5050)
+    host = os.getenv("FLASK_HOST", "0.0.0.0")
+    port = int(os.getenv("FLASK_PORT", "5050"))
+    app.run(debug=True, host=host, port=port)

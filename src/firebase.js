@@ -2,8 +2,11 @@ import { initializeApp, getApps } from "firebase/app";
 import {
   getAuth,
   GoogleAuthProvider,
+  signInWithRedirect,
   signInWithPopup,
+  getRedirectResult,
   signOut,
+  browserPopupRedirectResolver,
 } from "firebase/auth";
 
 let appInstance = null;
@@ -54,12 +57,37 @@ export function getGoogleProvider() {
 export async function signInWithGooglePopup() {
   const auth = getFirebaseAuth();
   const provider = getGoogleProvider();
-  return signInWithPopup(auth, provider);
+  try {
+    return await signInWithPopup(auth, provider, browserPopupRedirectResolver);
+  } catch (err) {
+    const fallbackCodes = new Set([
+      "auth/popup-blocked",
+      "auth/popup-closed-by-user",
+      "auth/cancelled-popup-request",
+      "auth/operation-not-supported-in-this-environment",
+    ]);
+    const missingInitialState = typeof err?.message === "string" && err.message.includes("missing initial state");
+    if (fallbackCodes.has(err?.code) || missingInitialState) {
+      await signInWithRedirect(auth, provider);
+      return null;
+    }
+    throw err;
+  }
 }
 
 export async function signOutFirebase() {
   const auth = getFirebaseAuth();
   return signOut(auth);
+}
+
+export async function getGoogleRedirectResult() {
+  const auth = getFirebaseAuth();
+  try {
+    return await getRedirectResult(auth);
+  } catch (err) {
+    console.warn("Google redirect sign-in failed", err);
+    return null;
+  }
 }
 
 export function extractGoogleIdToken(result) {
