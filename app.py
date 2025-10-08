@@ -33,6 +33,11 @@ from dotenv import load_dotenv
 from google.oauth2 import id_token as google_id_token
 from google.auth.transport import requests as google_requests
 
+try:
+    from openai import OpenAI
+except ImportError:  # pragma: no cover - optional dependency
+    OpenAI = None  # type: ignore
+
 # Load .env.local using an absolute path (more reliable than relative cwd)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ENV_PATH = os.path.join(BASE_DIR, ".env.local")
@@ -47,6 +52,10 @@ if not DATABASE_URL:
 
 GOOGLE_OAUTH_CLIENT_ID = os.getenv("GOOGLE_OAUTH_CLIENT_ID")
 FIREBASE_PROJECT_ID = os.getenv("FIREBASE_PROJECT_ID")
+
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+openai_client = OpenAI(api_key=OPENAI_API_KEY) if (OPENAI_API_KEY and OpenAI) else None
 
 # ----------------------------------------------------------------------------
 # App & Config
@@ -83,6 +92,9 @@ Base = declarative_base()
 
 def ensure_schema():
     inspector = inspect(engine)
+    if not inspector.has_table('sessions'):
+        Base.metadata.create_all(bind=engine)
+        return
     with engine.begin() as conn:
         session_cols = {col['name'] for col in inspector.get_columns('sessions')}
         if 'max_names' not in session_cols:
@@ -100,6 +112,8 @@ def ensure_schema():
         Message.__table__.create(bind=engine, checkfirst=True)
     if not inspector.has_table('notifications'):
         Notification.__table__.create(bind=engine, checkfirst=True)
+    if not inspector.has_table('name_metadata'):
+        NameMetadata.__table__.create(bind=engine, checkfirst=True)
 
 
 def seed_owner_states():
@@ -188,6 +202,84 @@ def _serialize_message(message: Message) -> dict:
         "kind": message.kind,
         "createdAt": _isoformat(message.created_at),
     }
+
+
+def _normalize_name_key(value: str) -> str:
+    return (value or "").strip().lower()
+
+
+def _get_name_metadata_map(db, names) -> dict:
+    if not names:
+        return {}
+    keys = {_normalize_name_key(name): name for name in names if name and name.strip()}
+    if not keys:
+        return {}
+    rows = (
+        db.query(NameMetadata)
+        .filter(NameMetadata.name_key.in_(list(keys.keys())))
+        .all()
+    )
+    return {row.name_key: (row.info_text or "") for row in rows if row.info_text}
+
+
+def _generate_name_fact(name: str) -> Optional[str]:
+    if not openai_client:
+        return None
+    prompt = (
+        "In no more than 22 words, give a friendly origin and meaning summary for the baby name "
+        f"'{name}'. Focus on historical or cultural context."
+    )
+    try:
+        response = openai_client.responses.create(
+            model=OPENAI_MODEL,
+            input=[
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": prompt}
+                    ],
+                }
+            ],
+            max_output_tokens=120,
+        )
+    except Exception as exc:  # pragma: no cover - external service
+        print(f"Failed to generate name metadata for {name}: {exc}")
+        return None
+
+    try:
+        text = (response.output_text or "").strip()
+    except AttributeError:  # pragma: no cover - safety net for SDK changes
+        text = ""
+    if not text:
+        return None
+    return text[:240].strip()
+
+
+def _prime_name_metadata(db, names) -> dict:
+    names = [name.strip() for name in names if name and name.strip()]
+    if not names:
+        return {}
+
+    existing = _get_name_metadata_map(db, names)
+    missing = [name for name in names if _normalize_name_key(name) not in existing]
+    if not missing or not openai_client:
+        return existing
+
+    for name in missing:
+        description = _generate_name_fact(name)
+        if not description:
+            continue
+        key = _normalize_name_key(name)
+        metadata = NameMetadata(
+            name_key=key,
+            display_name=name,
+            info_text=description,
+            source="openai",
+        )
+        db.add(metadata)
+        existing[key] = description
+    db.flush()
+    return existing
 
 # --- NEW User model ---
 class User(Base):
@@ -319,6 +411,17 @@ class Notification(Base):
     created_at = Column(DateTime, default=now_utc, nullable=False)
 
     session = relationship("Session", back_populates="notifications")
+
+
+class NameMetadata(Base):
+    __tablename__ = "name_metadata"
+
+    name_key = Column(String(120), primary_key=True)
+    display_name = Column(String(120), nullable=False)
+    info_text = Column(Text, nullable=True)
+    source = Column(String(32), nullable=True)
+    created_at = Column(DateTime, default=now_utc, nullable=False)
+    updated_at = Column(DateTime, default=now_utc, onupdate=now_utc, nullable=False)
 
 
 ensure_schema()
@@ -916,15 +1019,27 @@ def api_get_session(sid):
             .order_by(ListItem.owner_uid, ListItem.self_rank)
             .all()
         )
+
+        metadata_map = _get_name_metadata_map(db, [row.name for row in list_rows])
+
         lists = {}
         for row in list_rows:
-            entry = lists.setdefault(row.owner_uid, {"names": [], "selfRanks": {}, "status": state_map.get(row.owner_uid, {}).get("status", "draft")})
+            entry = lists.setdefault(
+                row.owner_uid,
+                {"names": [], "selfRanks": {}, "status": state_map.get(row.owner_uid, {}).get("status", "draft"), "facts": {}},
+            )
             entry["names"].append(row.name)
             entry["selfRanks"][row.name] = row.self_rank
+            fact_value = metadata_map.get(_normalize_name_key(row.name))
+            if fact_value:
+                entry.setdefault("facts", {})[row.name] = fact_value
 
         # ensure every owner appears in lists even if empty
         for owner_uid, state in state_map.items():
-            lists.setdefault(owner_uid, {"names": [], "selfRanks": {}, "status": state.get("status", "draft")})
+            lists.setdefault(
+                owner_uid,
+                {"names": [], "selfRanks": {}, "status": state.get("status", "draft"), "facts": {}},
+            )
 
         viewer_uid = email
         filtered_lists = {}
@@ -932,6 +1047,7 @@ def api_get_session(sid):
             status = data.get("status", "draft")
             if owner_uid != viewer_uid and status != "submitted":
                 continue
+            data.setdefault("facts", {})
             filtered_lists[owner_uid] = data
 
         scores_rows = db.query(Score).filter_by(session_id=sid).all()
@@ -1292,6 +1408,8 @@ def api_upsert_list(sid):
             state.status = "submitted" if finalize else "draft"
             state.updated_at = now_utc()
             state.submitted_at = now_utc() if finalize else None
+            if finalize:
+                _prime_name_metadata(db, [name for name, _ in cleaned])
             for target in notify_targets:
                 _create_notification(
                     db,

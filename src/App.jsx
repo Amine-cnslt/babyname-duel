@@ -3,6 +3,7 @@ import {
   ArrowLeft,
   Baby,
   Bell,
+  Info,
   Music,
   VolumeX,
   Loader2,
@@ -56,6 +57,28 @@ const FloatingDecor = React.memo(() => (
     <div className="bnd-bubble" style={{ top: "48%", left: "12%" }} />
   </div>
 ));
+
+const FactButton = ({ text }) => {
+  if (!text) return null;
+  const handleClick = () => {
+    if (typeof window !== "undefined") {
+      window.alert(text);
+    }
+  };
+  return (
+    <button
+      type="button"
+      onClick={handleClick}
+      className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-slate-200 bg-white/70 text-indigo-500 shadow-sm transition hover:bg-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-indigo-200"
+      aria-label="Show name details"
+      title={text}
+    >
+      <Info className="h-3.5 w-3.5" />
+    </button>
+  );
+};
+
+
 
 const formatDate = (value) => {
   if (!value) return "";
@@ -662,6 +685,7 @@ const ListEditor = ({
 }) => {
   const names = listState.names;
   const ranks = listState.ranks;
+  const facts = listState.facts || {};
   const entries = names
     .map((value, index) => ({ name: value, rank: ranks[index] ?? "", index }))
     .filter((item) => (canEdit ? true : Boolean(item.name && item.name.trim())));
@@ -740,7 +764,10 @@ const ListEditor = ({
           <div className="grid gap-2">
             {entries.map(({ name, rank, index }) => (
               <div key={index} className="grid grid-cols-[minmax(0,1fr)_100px] gap-2 text-sm">
-                <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-slate-700">{name}</div>
+                <div className="flex items-center gap-2">
+                  <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-slate-700">{name}</div>
+                  <FactButton text={facts[name]} />
+                </div>
                 <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-slate-600">
                   Rank {rank || "-"}
                 </div>
@@ -785,6 +812,7 @@ const ScoringPanel = ({
     <div className="space-y-4">
       {otherLists.map((entry) => {
         const isComplete = !!completedScores?.[entry.ownerUid];
+        const factsByOwner = entry.facts || {};
         return (
           <Card key={entry.ownerUid} className="p-5 space-y-3">
             <div className="flex items-center justify-between">
@@ -808,7 +836,10 @@ const ScoringPanel = ({
                 if (isComplete) {
                   return (
                     <div key={name} className="grid grid-cols-[minmax(0,1fr)_160px] gap-2 text-sm">
-                      <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-slate-700">{name}</div>
+                      <div className="flex items-center gap-2">
+                        <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-slate-700">{name}</div>
+                        <FactButton text={factsByOwner[name]} />
+                      </div>
                       <div className="rounded-lg border border-slate-200 bg-emerald-50 px-3 py-2 text-emerald-700">
                         Rank {scoreRow?.value || "-"}
                       </div>
@@ -817,7 +848,10 @@ const ScoringPanel = ({
                 }
                 return (
                   <div key={name} className="grid grid-cols-[minmax(0,1fr)_160px] gap-2 text-sm">
-                    <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-slate-700">{name}</div>
+                    <div className="flex items-center gap-2">
+                      <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-slate-700">{name}</div>
+                      <FactButton text={factsByOwner[name]} />
+                    </div>
                     <div className="flex items-center gap-2">
                       <select
                         className="flex-1 rounded-lg border border-slate-300 px-3 py-2"
@@ -912,6 +946,17 @@ const ResultsPanel = ({ lists, scores, requiredNames, invitesLocked, onTopTieCha
     return { ranking, topNames };
   }, [scores, lists, invitesLocked]);
 
+  const factIndex = useMemo(() => {
+    if (!lists) return {};
+    const lookup = {};
+    Object.values(lists).forEach((entry) => {
+      Object.entries(entry.facts || {}).forEach(([name, info]) => {
+        lookup[name.toLowerCase()] = info;
+      });
+    });
+    return lookup;
+  }, [lists]);
+
   const topTie = aggregated.topNames.length > 1;
   const winnerNames = aggregated.topNames.map((row) => row.name);
   const winnerTotal = aggregated.topNames.length ? aggregated.topNames[0].total : null;
@@ -954,26 +999,30 @@ const ResultsPanel = ({ lists, scores, requiredNames, invitesLocked, onTopTieCha
             )}
           </div>
 
-          {aggregated.ranking.map((row, index) => (
-            <div key={row.name} className="rounded-lg border border-slate-200 px-3 py-2">
-              <div className="flex items-center justify-between">
-                <div className="font-semibold text-slate-700">
-                  #{index + 1} · {row.name}
-                </div>
-                <div className="text-sm text-slate-500">
-                  Total: {row.total} · Average: {row.average.toFixed(2)}
-                </div>
-              </div>
-              <div className="mt-1 grid gap-1 text-xs text-slate-500">
-                {Object.entries(row.owners).map(([ownerUid, score]) => (
-                  <div key={ownerUid} className="flex justify-between">
-                    <span>Scored by {ownerUid}</span>
-                    <span>Rank: {score}</span>
+          {aggregated.ranking.map((row, index) => {
+            const factText = factIndex[row.name.toLowerCase()];
+            return (
+              <div key={row.name} className="rounded-lg border border-slate-200 px-3 py-2">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2 font-semibold text-slate-700">
+                    <span>#{index + 1} · {row.name}</span>
+                    <FactButton text={factText} />
                   </div>
-                ))}
+                  <div className="text-sm text-slate-500">
+                    Total: {row.total} · Average: {row.average.toFixed(2)}
+                  </div>
+                </div>
+                <div className="mt-1 grid gap-1 text-xs text-slate-500">
+                  {Object.entries(row.owners).map(([ownerUid, score]) => (
+                    <div key={ownerUid} className="flex justify-between">
+                      <span>Scored by {ownerUid}</span>
+                      <span>Rank: {score}</span>
+                    </div>
+                  ))}
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       ) : (
         <div className="rounded-lg border border-dashed border-slate-200 px-3 py-4 text-sm text-slate-500">
@@ -1075,7 +1124,7 @@ export default function App() {
   const [lists, setLists] = useState({});
   const [scores, setScores] = useState({});
   const [messages, setMessages] = useState([]);
-  const [listDraft, setListDraft] = useState({ names: [], ranks: [], status: "draft" });
+  const [listDraft, setListDraft] = useState({ names: [], ranks: [], status: "draft", facts: {} });
   const [scoreDrafts, setScoreDrafts] = useState({});
   const [completedScores, setCompletedScores] = useState({});
   const [notifications, setNotifications] = useState([]);
@@ -1325,7 +1374,8 @@ export default function App() {
       const name = myList.names[i];
       return myList.selfRanks?.[name] ?? i + 1;
     });
-    setListDraft({ names, ranks, status: myList?.status || payload.session?.listStates?.[myUid]?.status || "draft" });
+    const facts = myList?.facts || {};
+    setListDraft({ names, ranks, status: myList?.status || payload.session?.listStates?.[myUid]?.status || "draft", facts });
 
     const draftScores = {};
     const myScores = (payload.scores || []).filter((row) => row.raterUid === myUid);
@@ -1431,7 +1481,7 @@ export default function App() {
     setLists({});
     setScores({});
     setMessages([]);
-    setListDraft({ names: [], ranks: [], status: "draft" });
+    setListDraft({ names: [], ranks: [], status: "draft", facts: {} });
     setScoreDrafts({});
     setCompletedScores({});
     setSessionBusy(false);
@@ -1796,7 +1846,7 @@ export default function App() {
       setLists({});
       setScores({});
       setMessages([]);
-      setListDraft({ names: [], ranks: [], status: "draft" });
+      setListDraft({ names: [], ranks: [], status: "draft", facts: {} });
       setScoreDrafts({});
       setCompletedScores({});
       setNotifications([]);
