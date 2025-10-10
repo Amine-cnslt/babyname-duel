@@ -281,6 +281,21 @@ def _generate_name_fact(name: str) -> Optional[dict]:
         ],
         "max_tokens": 180,
         "temperature": 0.6,
+        "response_format": {
+            "type": "json_schema",
+            "json_schema": {
+                "name": "name_fact",
+                "schema": {
+                    "type": "object",
+                    "properties": {
+                        "description": {"type": "string"},
+                        "phonetic": {"type": "string"}
+                    },
+                    "required": ["description"],
+                    "additionalProperties": False,
+                },
+            },
+        },
     }
 
     description = ""
@@ -300,10 +315,12 @@ def _generate_name_fact(name: str) -> Optional[dict]:
         if raw_text:
             try:
                 parsed = json.loads(raw_text)
+            except json.JSONDecodeError:
+                parsed = {}
+                description = raw_text
+            else:
                 description = (parsed.get("description") or "").strip()
                 phonetic = (parsed.get("phonetic") or "").strip()
-            except json.JSONDecodeError:
-                description = raw_text
     except (http_requests.RequestException, ValueError, KeyError, IndexError) as exc:  # pragma: no cover
         print(f"Failed to generate name metadata for {name}: {exc}")
         return None
