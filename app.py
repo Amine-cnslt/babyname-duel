@@ -14,6 +14,7 @@ Optional:
   ALLOWED_ORIGIN=http://localhost:5173  (CORS for /api/*)
 """
 
+import base64
 import json
 import os
 import re
@@ -53,6 +54,9 @@ FIREBASE_PROJECT_ID = os.getenv("FIREBASE_PROJECT_ID")
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-3.5-turbo")
+OPENAI_TTS_MODEL = os.getenv("OPENAI_TTS_MODEL", "gpt-4o-mini-tts")
+OPENAI_TTS_VOICE = os.getenv("OPENAI_TTS_VOICE", "alloy")
+OPENAI_TTS_FORMAT = os.getenv("OPENAI_TTS_FORMAT", "mp3")
 
 # ----------------------------------------------------------------------------
 # App & Config
@@ -106,14 +110,31 @@ def ensure_schema(retries: int = 5, delay: float = 2.0):
                 conn.execute(sql_text('UPDATE sessions SET max_names = 10 WHERE max_names IS NULL OR max_names < 5'))
                 conn.execute(sql_text('UPDATE sessions SET invites_locked = 0 WHERE invites_locked IS NULL'))
                 conn.execute(sql_text("UPDATE sessions SET name_focus = 'mix' WHERE name_focus IS NULL OR name_focus = ''"))
-            if not inspector.has_table('owner_list_states'):
-                OwnerListState.__table__.create(bind=engine, checkfirst=True)
-            if not inspector.has_table('messages'):
-                Message.__table__.create(bind=engine, checkfirst=True)
-            if not inspector.has_table('notifications'):
-                Notification.__table__.create(bind=engine, checkfirst=True)
-            if not inspector.has_table('name_metadata'):
-                NameMetadata.__table__.create(bind=engine, checkfirst=True)
+
+                if not inspector.has_table('owner_list_states'):
+                    OwnerListState.__table__.create(bind=engine, checkfirst=True)
+                if not inspector.has_table('messages'):
+                    Message.__table__.create(bind=engine, checkfirst=True)
+                if not inspector.has_table('notifications'):
+                    Notification.__table__.create(bind=engine, checkfirst=True)
+                if not inspector.has_table('name_metadata'):
+                    NameMetadata.__table__.create(bind=engine, checkfirst=True)
+                else:
+                    meta_cols = {col['name'] for col in inspector.get_columns('name_metadata')}
+                    if 'phonetic' not in meta_cols:
+                        conn.execute(sql_text('ALTER TABLE name_metadata ADD COLUMN phonetic VARCHAR(120)'))
+                    if 'audio_base64' not in meta_cols:
+                        conn.execute(sql_text('ALTER TABLE name_metadata ADD COLUMN audio_base64 TEXT'))
+                    if 'audio_mime' not in meta_cols:
+                        conn.execute(sql_text('ALTER TABLE name_metadata ADD COLUMN audio_mime VARCHAR(64)'))
+            return
+        except OperationalError as exc:
+            attempt += 1
+            if attempt > 5:
+                raise
+            sleep_for = 2.0 * attempt
+            print(f"ensure_schema retry {attempt}/5 after OperationalError: {exc}. Sleeping {sleep_for}s")
+            time.sleep(sleep_for)
             return
         except OperationalError as exc:
             attempt += 1
@@ -227,16 +248,25 @@ def _get_name_metadata_map(db, names) -> dict:
         .filter(NameMetadata.name_key.in_(list(keys.keys())))
         .all()
     )
-    return {row.name_key: (row.info_text or "") for row in rows if row.info_text}
+    results = {}
+    for row in rows:
+        results[row.name_key] = {
+            "info": row.info_text or "",
+            "phonetic": row.phonetic or "",
+            "audioBase64": row.audio_base64 or "",
+            "audioMime": row.audio_mime or "audio/mpeg",
+        }
+    return results
 
 
-def _generate_name_fact(name: str) -> Optional[str]:
+def _generate_name_fact(name: str) -> Optional[dict]:
     if not OPENAI_API_KEY:
         return None
 
     prompt = (
-        "In no more than 22 words, give a friendly origin and meaning summary for the baby name "
-        f"'{name}'. Focus on historical or cultural context."
+        "Respond with a compact JSON object describing the baby name. "
+        "Keys: description (max 22 words, friendly origin + meaning) and phonetic (phonetic spelling or IPA). "
+        f"Name: {name}."
     )
 
     headers = {
@@ -246,31 +276,75 @@ def _generate_name_fact(name: str) -> Optional[str]:
     payload = {
         "model": OPENAI_MODEL,
         "messages": [
-            {"role": "system", "content": "You are a friendly baby name expert."},
+            {"role": "system", "content": "You are a helpful baby name expert."},
             {"role": "user", "content": prompt},
         ],
-        "max_tokens": 120,
+        "max_tokens": 180,
         "temperature": 0.6,
     }
+
+    description = ""
+    phonetic = ""
 
     try:
         resp = http_requests.post(
             "https://api.openai.com/v1/chat/completions",
             headers=headers,
             json=payload,
-            timeout=15,
+            timeout=20,
         )
         resp.raise_for_status()
         data = resp.json()
-        text = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+        raw_text = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+        raw_text = (raw_text or "").strip()
+        if raw_text:
+            try:
+                parsed = json.loads(raw_text)
+                description = (parsed.get("description") or "").strip()
+                phonetic = (parsed.get("phonetic") or "").strip()
+            except json.JSONDecodeError:
+                description = raw_text
     except (http_requests.RequestException, ValueError, KeyError, IndexError) as exc:  # pragma: no cover
         print(f"Failed to generate name metadata for {name}: {exc}")
         return None
 
-    text = text.strip() if text else ""
-    if not text:
+    description = (description or "").strip()
+    if description:
+        description = description[:240].strip()
+    return {"description": description, "phonetic": phonetic}
+
+
+def _generate_name_audio(name: str) -> Optional[dict]:
+    if not OPENAI_API_KEY:
         return None
-    return text[:240].strip()
+
+    headers = {
+        "Authorization": f"Bearer {OPENAI_API_KEY}",
+    }
+    payload = {
+        "model": OPENAI_TTS_MODEL,
+        "voice": OPENAI_TTS_VOICE,
+        "input": name,
+        "format": OPENAI_TTS_FORMAT,
+    }
+
+    try:
+        resp = http_requests.post(
+            "https://api.openai.com/v1/audio/speech",
+            headers=headers,
+            json=payload,
+            timeout=30,
+        )
+        resp.raise_for_status()
+        audio_bytes = resp.content
+        if not audio_bytes:
+            return None
+        encoded = base64.b64encode(audio_bytes).decode("ascii")
+        mime = f"audio/{OPENAI_TTS_FORMAT}" if OPENAI_TTS_FORMAT else "audio/mpeg"
+        return {"audioBase64": encoded, "audioMime": mime}
+    except http_requests.RequestException as exc:  # pragma: no cover
+        print(f"Failed to generate pronunciation audio for {name}: {exc}")
+        return None
 
 
 def _prime_name_metadata(db, names) -> dict:
@@ -284,18 +358,29 @@ def _prime_name_metadata(db, names) -> dict:
         return existing
 
     for name in missing:
-        description = _generate_name_fact(name)
-        if not description:
-            continue
         key = _normalize_name_key(name)
+        info_payload = _generate_name_fact(name)
+        if not info_payload:
+            continue
+
+        audio_payload = _generate_name_audio(name)
+
         metadata = NameMetadata(
             name_key=key,
             display_name=name,
-            info_text=description,
+            info_text=info_payload.get("description"),
+            phonetic=info_payload.get("phonetic"),
+            audio_base64=(audio_payload or {}).get("audioBase64"),
+            audio_mime=(audio_payload or {}).get("audioMime"),
             source="openai",
         )
         db.add(metadata)
-        existing[key] = description
+        existing[key] = {
+            "info": info_payload.get("description", ""),
+            "phonetic": info_payload.get("phonetic", ""),
+            "audioBase64": (audio_payload or {}).get("audioBase64", ""),
+            "audioMime": (audio_payload or {}).get("audioMime", "audio/mpeg"),
+        }
     db.flush()
     return existing
 
@@ -438,6 +523,9 @@ class NameMetadata(Base):
     display_name = Column(String(120), nullable=False)
     info_text = Column(Text, nullable=True)
     source = Column(String(32), nullable=True)
+    phonetic = Column(String(120), nullable=True)
+    audio_base64 = Column(Text, nullable=True)
+    audio_mime = Column(String(64), nullable=True)
     created_at = Column(DateTime, default=now_utc, nullable=False)
     updated_at = Column(DateTime, default=now_utc, onupdate=now_utc, nullable=False)
 

@@ -58,23 +58,72 @@ const FloatingDecor = React.memo(() => (
   </div>
 ));
 
-const FactButton = ({ text }) => {
-  if (!text) return null;
-  const handleClick = () => {
-    if (typeof window !== "undefined") {
-      window.alert(text);
+const FactButton = ({ fact }) => {
+  const [open, setOpen] = useState(false);
+  if (!fact || (!fact.info && !fact.audioBase64)) {
+    return null;
+  }
+
+  const audioUrl = fact.audioBase64
+    ? `data:${fact.audioMime || 'audio/mpeg'};base64,${fact.audioBase64}`
+    : null;
+
+  const handleToggle = () => {
+    setOpen((prev) => !prev);
+  };
+
+  const handlePlay = () => {
+    if (!audioUrl) return;
+    try {
+      const audio = new Audio(audioUrl);
+      audio.play().catch((err) => console.error("Audio playback failed", err));
+    } catch (err) {
+      console.error("Audio playback failed", err);
     }
   };
+
   return (
-    <button
-      type="button"
-      onClick={handleClick}
-      className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-slate-200 bg-white/70 text-indigo-500 shadow-sm transition hover:bg-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-indigo-200"
-      aria-label="Show name details"
-      title={text}
-    >
-      <Info className="h-3.5 w-3.5" />
-    </button>
+    <div className="relative inline-block text-left">
+      <button
+        type="button"
+        onClick={handleToggle}
+        className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-slate-200 bg-white/70 text-indigo-500 shadow-sm transition hover:bg-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-indigo-200"
+        aria-label="Show name details"
+        title="Show name details"
+      >
+        <Info className="h-3.5 w-3.5" />
+      </button>
+      {open ? (
+        <div className="absolute left-1/2 z-40 mt-2 w-56 -translate-x-1/2 rounded-lg border border-slate-200 bg-white p-3 text-left text-xs shadow-lg">
+          <div className="font-semibold text-slate-700">Name insight</div>
+          <div className="mt-1 text-slate-600 whitespace-pre-line">
+            {fact.info || "No description available yet."}
+          </div>
+          {fact.phonetic ? (
+            <div className="mt-1 text-[11px] uppercase tracking-wide text-indigo-500">
+              {fact.phonetic}
+            </div>
+          ) : null}
+          {audioUrl ? (
+            <button
+              type="button"
+              onClick={handlePlay}
+              className="mt-2 inline-flex items-center gap-1 rounded-full bg-indigo-500 px-3 py-1 text-[11px] font-medium text-white hover:bg-indigo-600"
+            >
+              ▶ Play pronunciation
+            </button>
+          ) : null}
+          <button
+            type="button"
+            onClick={handleToggle}
+            className="absolute -right-2 -top-2 h-5 w-5 rounded-full bg-slate-200 text-[10px] text-slate-600"
+            aria-label="Close name insight"
+          >
+            ×
+          </button>
+        </div>
+      ) : null}
+    </div>
   );
 };
 
@@ -766,7 +815,7 @@ const ListEditor = ({
               <div key={index} className="grid grid-cols-[minmax(0,1fr)_100px] gap-2 text-sm">
                 <div className="flex items-center gap-2">
                   <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-slate-700">{name}</div>
-                  <FactButton text={facts[name]} />
+                  <FactButton fact={facts[name]} />
                 </div>
                 <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-slate-600">
                   Rank {rank || "-"}
@@ -838,7 +887,7 @@ const ScoringPanel = ({
                     <div key={name} className="grid grid-cols-[minmax(0,1fr)_160px] gap-2 text-sm">
                       <div className="flex items-center gap-2">
                         <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-slate-700">{name}</div>
-                        <FactButton text={factsByOwner[name]} />
+                        <FactButton fact={factsByOwner[name]} />
                       </div>
                       <div className="rounded-lg border border-slate-200 bg-emerald-50 px-3 py-2 text-emerald-700">
                         Rank {scoreRow?.value || "-"}
@@ -850,7 +899,7 @@ const ScoringPanel = ({
                   <div key={name} className="grid grid-cols-[minmax(0,1fr)_160px] gap-2 text-sm">
                     <div className="flex items-center gap-2">
                       <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-slate-700">{name}</div>
-                      <FactButton text={factsByOwner[name]} />
+                      <FactButton fact={factsByOwner[name]} />
                     </div>
                     <div className="flex items-center gap-2">
                       <select
@@ -1000,13 +1049,13 @@ const ResultsPanel = ({ lists, scores, requiredNames, invitesLocked, onTopTieCha
           </div>
 
           {aggregated.ranking.map((row, index) => {
-            const factText = factIndex[row.name.toLowerCase()];
+            const fact = factIndex[row.name.toLowerCase()];
             return (
               <div key={row.name} className="rounded-lg border border-slate-200 px-3 py-2">
                 <div className="flex items-center justify-between gap-2">
                   <div className="flex items-center gap-2 font-semibold text-slate-700">
                     <span>#{index + 1} · {row.name}</span>
-                    <FactButton text={factText} />
+                    <FactButton fact={fact} />
                   </div>
                   <div className="text-sm text-slate-500">
                     Total: {row.total} · Average: {row.average.toFixed(2)}
