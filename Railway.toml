@@ -1,18 +1,6 @@
 [build]
-builder = "NIXPACKS"
-
-[phases.setup]
-nixPkgs = ["python311", "nodejs_20"]
-
-[phases.install]
-cmds = [
-  "pip install --upgrade pip",
-  "pip install -r requirements.txt",
-  "npm install"
-]
-
-[phases.build]
-cmds = ["npm run build"]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
 
 [start]
 cmd = "python app.py"
