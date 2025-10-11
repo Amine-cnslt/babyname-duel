@@ -18,8 +18,11 @@ import base64
 import json
 import os
 import re
+import smtplib
+import ssl
 import time
 from datetime import datetime, timedelta
+from email.message import EmailMessage
 from typing import Optional
 from uuid import uuid4
 
@@ -57,6 +60,15 @@ OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-3.5-turbo")
 OPENAI_TTS_MODEL = os.getenv("OPENAI_TTS_MODEL", "gpt-4o-mini-tts")
 OPENAI_TTS_VOICE = os.getenv("OPENAI_TTS_VOICE", "alloy")
 OPENAI_TTS_FORMAT = os.getenv("OPENAI_TTS_FORMAT", "mp3")
+
+# Email (password reset) configuration
+EMAIL_SENDER = os.getenv("EMAIL_SENDER")
+SMTP_HOST = os.getenv("SMTP_HOST")
+SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
+SMTP_USERNAME = os.getenv("SMTP_USERNAME")
+SMTP_PASSWORD = os.getenv("SMTP_PASSWORD")
+SMTP_USE_TLS = os.getenv("SMTP_USE_TLS", "true").lower() in {"1", "true", "yes"}
+PASSWORD_RESET_URL_BASE = os.getenv("PASSWORD_RESET_URL_BASE")
 
 # ----------------------------------------------------------------------------
 # App & Config
@@ -549,6 +561,33 @@ class NameMetadata(Base):
 
 ensure_schema()
 seed_owner_states()
+
+
+def _send_email(*, subject: str, body: str, recipient: str) -> bool:
+    """Basic SMTP email helper; returns True on success."""
+    if not EMAIL_SENDER or not SMTP_HOST:
+        # Email not configured; log and skip (tests expect token in response).
+        print("Email not configured; would send to", recipient)
+        return False
+
+    message = EmailMessage()
+    message["Subject"] = subject
+    message["From"] = EMAIL_SENDER
+    message["To"] = recipient
+    message.set_content(body)
+
+    try:
+        with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=15) as server:
+            if SMTP_USE_TLS:
+                context = ssl.create_default_context()
+                server.starttls(context=context)
+            if SMTP_USERNAME and SMTP_PASSWORD:
+                server.login(SMTP_USERNAME, SMTP_PASSWORD)
+            server.send_message(message)
+        return True
+    except Exception as exc:  # pragma: no cover - dependent on SMTP runtime
+        print(f"Failed to send email to {recipient}: {exc}")
+        return False
 
 
 def _ensure_owner_list_state(db, session_id: str, uid: str):
@@ -1873,9 +1912,50 @@ def api_reset_password_request():
     db.add(reset)
     db.commit()
 
-    # TODO: Send email with link like https://yourdomain.com/reset?token=token
-    # For now, return token for testing
-    return jsonify({"ok": True, "token": token, "message": "Reset token generated (for dev)."}), 200
+    reset_link = None
+    if PASSWORD_RESET_URL_BASE:
+        if "{token}" in PASSWORD_RESET_URL_BASE:
+            reset_link = PASSWORD_RESET_URL_BASE.replace("{token}", token)
+        elif PASSWORD_RESET_URL_BASE.endswith("?") or PASSWORD_RESET_URL_BASE.endswith("="):
+            reset_link = f"{PASSWORD_RESET_URL_BASE}{token}"
+        elif "?" in PASSWORD_RESET_URL_BASE:
+            reset_link = f"{PASSWORD_RESET_URL_BASE}&token={token}"
+        elif PASSWORD_RESET_URL_BASE.endswith(('/', '#')):
+            reset_link = f"{PASSWORD_RESET_URL_BASE}{token}"
+        else:
+            reset_link = f"{PASSWORD_RESET_URL_BASE}?token={token}"
+
+    subject = "Reset your BabyName Duel password"
+    if reset_link:
+        body = (
+            "Hello!\n\n"
+            "We received a request to reset your BabyName Duel password. "
+            "Click the link below within the next hour to choose a new password:\n\n"
+            f"{reset_link}\n\n"
+            "If you didn't request this, you can safely ignore the message."
+        )
+    else:
+        body = (
+            "Hello!\n\n"
+            "Use the token below to reset your BabyName Duel password within the next hour:\n\n"
+            f"Token: {token}\n\n"
+            "Paste it into the reset form in the app."
+        )
+
+    email_sent = _send_email(subject=subject, body=body, recipient=email)
+
+    if email_sent:
+        return jsonify({"ok": True, "message": "If the email exists, a reset link has been sent."}), 200
+
+    # Fallback for development/testing when email isn't configured
+    response = {
+        "ok": True,
+        "token": token,
+        "message": "Reset token generated (email delivery not configured).",
+    }
+    if reset_link:
+        response["resetUrl"] = reset_link
+    return jsonify(response), 200
 
 # --- Password reset confirmation endpoint ---
 @app.route("/api/reset-password", methods=["POST"])
