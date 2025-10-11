@@ -1,5 +1,10 @@
 // src/api.js
-const BASE_URL = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:5050";
+const runtimeOrigin =
+  typeof window !== "undefined"
+    ? window.__BND?.apiBase || window.location.origin
+    : undefined;
+
+const BASE_URL = import.meta.env.VITE_API_BASE ?? runtimeOrigin ?? "http://127.0.0.1:5050";
 
 async function request(path, { method = "GET", json } = {}) {
   const res = await fetch(`${BASE_URL}${path}`, {
