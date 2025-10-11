@@ -1192,6 +1192,13 @@ export default function App() {
   const notificationsInitializedRef = useRef(false);
 
   const queryParams = useQueryParams();
+  const initialResetToken = queryParams.resetToken || "";
+  const allowedLoginModes = useMemo(() => new Set(["signin", "signup", "forgot", "reset"]), []);
+  const initialLoginMode = initialResetToken
+    ? "reset"
+    : allowedLoginModes.has(queryParams.mode)
+    ? queryParams.mode
+    : undefined;
 
   useEffect(() => {
     soundscapeRef.current = createSoundscape();
@@ -1974,12 +1981,14 @@ export default function App() {
         <main className="mx-auto max-w-6xl px-4 py-6">
           {!user ? (
             <LoginPage
+              initialMode={initialLoginMode}
+              initialResetToken={initialResetToken}
               onGoogleSignIn={handleSignInGoogle}
-            onEmailSignIn={handleSignInEmail}
-            onSignup={({ email, password, fullName }) => handleSignUp(email, password, fullName)}
-            onRequestReset={(email) => api.requestPasswordReset({ email })}
-            onConfirmReset={(token, newPassword) => api.resetPassword({ token, newPassword })}
-          />
+              onEmailSignIn={handleSignInEmail}
+              onSignup={({ email, password, fullName }) => handleSignUp(email, password, fullName)}
+              onRequestReset={(email) => api.requestPasswordReset({ email })}
+              onConfirmReset={(token, newPassword) => api.resetPassword({ token, newPassword })}
+            />
         ) : sessionDoc ? (
           <div className="space-y-4">
             {sessionBusy && (
