@@ -37,6 +37,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import declarative_base, sessionmaker, scoped_session, relationship
 from sqlalchemy.exc import OperationalError
 from dotenv import load_dotenv
+import certifi
 from google.oauth2 import id_token as google_id_token
 from google.auth.transport import requests as google_requests
 import requests as http_requests
@@ -580,13 +581,22 @@ def _send_email(*, subject: str, body: str, recipient: str) -> bool:
     message.set_content(body)
 
     try:
-        app.logger.info("Attempting to send email to %s via %s:%s", recipient, SMTP_HOST, SMTP_PORT)
+        app.logger.info(
+            "Attempting to send email to %s via %s:%s (TLS=%s, user=%s)",
+            recipient,
+            SMTP_HOST,
+            SMTP_PORT,
+            SMTP_USE_TLS,
+            SMTP_USERNAME,
+        )
+        context = ssl.create_default_context(cafile=certifi.where())
         with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=15) as server:
             if SMTP_DEBUG:
                 server.set_debuglevel(1)
+            server.ehlo()
             if SMTP_USE_TLS:
-                context = ssl.create_default_context()
                 server.starttls(context=context)
+                server.ehlo()
             if SMTP_USERNAME and SMTP_PASSWORD:
                 server.login(SMTP_USERNAME, SMTP_PASSWORD)
             server.send_message(message)
