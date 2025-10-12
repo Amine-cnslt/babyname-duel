@@ -21,6 +21,7 @@ import re
 import smtplib
 import ssl
 import time
+import logging
 from datetime import datetime, timedelta
 from email.message import EmailMessage
 from typing import Optional
@@ -77,6 +78,7 @@ PASSWORD_RESET_URL_BASE = os.getenv("PASSWORD_RESET_URL_BASE")
 
 DIST_DIR = os.path.join(os.path.dirname(__file__), "dist")
 app = Flask(__name__, static_folder="dist", static_url_path="/")
+app.logger.setLevel(logging.INFO)
 
 @app.route("/api/test", methods=["GET"])
 def test_api():
