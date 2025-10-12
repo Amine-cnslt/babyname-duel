@@ -578,6 +578,7 @@ def _send_email(*, subject: str, body: str, recipient: str) -> bool:
     message.set_content(body)
 
     try:
+        print(f"Attempting to send email to {recipient} via {SMTP_HOST}:{SMTP_PORT}")
         with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=15) as server:
             if SMTP_DEBUG:
                 server.set_debuglevel(1)
@@ -587,6 +588,7 @@ def _send_email(*, subject: str, body: str, recipient: str) -> bool:
             if SMTP_USERNAME and SMTP_PASSWORD:
                 server.login(SMTP_USERNAME, SMTP_PASSWORD)
             server.send_message(message)
+        print(f"Password reset email dispatched to {recipient}")
         return True
     except Exception as exc:  # pragma: no cover - dependent on SMTP runtime
         print(f"Failed to send email to {recipient}: {exc}")
