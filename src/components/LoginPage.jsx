@@ -1,8 +1,18 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 /** Modern login page for BabyName Duel (footer removed) */
-export default function LoginPage({ onGoogleSignIn, onEmailSignIn, onSignup, onRequestReset, onConfirmReset }) {
-  const [mode, setMode] = useState("signin"); // "signin" | "signup" | "forgot" | "reset"
+const MODES = new Set(["signin", "signup", "forgot", "reset"]);
+
+export default function LoginPage({
+  initialMode = "signin",
+  initialResetToken = "",
+  onGoogleSignIn,
+  onEmailSignIn,
+  onSignup,
+  onRequestReset,
+  onConfirmReset,
+}) {
+  const [mode, setMode] = useState(() => (MODES.has(initialMode) ? initialMode : "signin"));
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [fullName, setFullName] = useState("");
@@ -44,7 +54,7 @@ export default function LoginPage({ onGoogleSignIn, onEmailSignIn, onSignup, onR
     });
   };
   const [loading, setLoading] = useState(false);
-  const [resetToken, setResetToken] = useState("");
+  const [resetToken, setResetToken] = useState(initialResetToken || "");
   const [resetPassword, setResetPassword] = useState("");
   const [resetConfirm, setResetConfirm] = useState("");
   const [notice, setNotice] = useState(null);
