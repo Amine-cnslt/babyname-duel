@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
-/** Modern login page for BabyName Duel (footer removed) */
+/** Modern login page for BabyNames Hive (footer removed) */
 const MODES = new Set(["signin", "signup", "forgot", "reset"]);
 
 export default function LoginPage({
@@ -108,7 +108,7 @@ export default function LoginPage({
       return;
     }
     if (mode === "reset" && (!resetToken.trim() || resetPassword.length < 6)) {
-      setNotice("Reset token and a password of at least 6 characters are required.");
+      setNotice("Your reset link is missing or expired. Please request another.");
       setNoticeType("error");
       return;
     }
@@ -123,8 +123,7 @@ export default function LoginPage({
           try {
             const res = await (onRequestReset?.(email) ?? Promise.resolve());
             const msg = res?.message || "If the email exists, a reset link has been sent.";
-            const tokenMsg = res?.token ? `\nToken: ${res.token}` : "";
-            setNotice(`${msg}${tokenMsg}`);
+            setNotice(msg);
             setNoticeType("success");
           } catch (err) {
             setNotice(err?.message || "Unable to process reset request.");
@@ -164,8 +163,8 @@ export default function LoginPage({
           {/* Brand */}
           <div className="mb-6 text-center">
             <div className="mx-auto mb-2 grid h-10 w-10 place-items-center rounded-full bg-indigo-50 text-indigo-600">🤝</div>
-            <h1 className="text-3xl font-extrabold leading-tight text-slate-800 whitespace-nowrap"><span className="text-indigo-600">BabyName</span>{" "}<span className="font-extrabold text-pink-500">Duel</span> <span className="ml-2">👶👱‍♂️🍼</span></h1>
-            <p className="mt-1 text-sm text-slate-500">Owners + voters, fair scoring.</p>
+            <h1 className="text-3xl font-extrabold leading-tight text-slate-800 whitespace-nowrap"><span className="text-indigo-600">BabyNames</span>{" "}<span className="font-extrabold text-amber-500">Hive</span> <span className="ml-2">🐝🌼🍼</span></h1>
+            <p className="mt-1 text-sm text-slate-500">Buzzing with beautiful name ideas.</p>
           </div>
 
           <h2 className="mb-1 text-center text-xl font-semibold text-slate-900">
@@ -177,8 +176,8 @@ export default function LoginPage({
           <p className="mb-5 text-center text-sm text-slate-500 whitespace-pre-line">
             {mode === "signin" && "Please sign in to continue your journey"}
             {mode === "signup" && "Start your baby name journey today"}
-            {mode === "forgot" && "Enter the email you used at signup. We'll send instructions and show a dev token here."}
-            {mode === "reset" && "Paste the reset token and choose a new password."}
+            {mode === "forgot" && "Enter the email you used at signup and we'll send you reset instructions."}
+            {mode === "reset" && "Use the link in your email to choose a new password."}
           </p>
 
           {/* Google button */}
@@ -282,14 +281,6 @@ export default function LoginPage({
 
             {mode === "reset" && (
               <>
-                <input
-                  type="text"
-                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-slate-800 placeholder-slate-400 outline-none ring-indigo-200 transition focus:border-indigo-400 focus:ring"
-                  placeholder="Reset token"
-                  value={resetToken}
-                  onChange={(e) => setResetToken(e.target.value)}
-                  required
-                />
                 <div className="relative">
                   <input
                     ref={resetPwdRef}
@@ -399,15 +390,12 @@ export default function LoginPage({
               <>
                 Remember your password?{" "}
                 <button onClick={() => switchMode("signin")} className="text-indigo-600 hover:underline">Back to sign in</button>
-                <br />
-                Have a token already?{" "}
-                <button onClick={() => switchMode("reset")} className="text-indigo-600 hover:underline">Enter token</button>
               </>
             )}
             {mode === "reset" && (
               <>
-                Need a token?{" "}
-                <button onClick={() => switchMode("forgot")} className="text-indigo-600 hover:underline">Request reset</button>
+                Need a new link?{" "}
+                <button onClick={() => switchMode("forgot")} className="text-indigo-600 hover:underline">Request again</button>
                 <br />
                 Ready to sign in?{" "}
                 <button onClick={() => switchMode("signin")} className="text-indigo-600 hover:underline">Back to sign in</button>

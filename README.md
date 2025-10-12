@@ -27,13 +27,23 @@ FIREBASE_PROJECT_ID=your-project-id
 
 # Outbound email (password reset)
 EMAIL_SENDER=no-reply@yourdomain.com
-SMTP_HOST=smtp.sendgrid.net
+SENDGRID_API_KEY=SG.xxxxxx         # Preferred: SendGrid HTTP API
+
+# Optional SMTP fallback (requires provider that allows SMTP from Railway)
+SMTP_HOST=smtp.gmail.com
 SMTP_PORT=587
-SMTP_USERNAME=apikey
-SMTP_PASSWORD=SG.xxxxxx
+SMTP_USERNAME=your-account@gmail.com
+SMTP_PASSWORD=app-password
 SMTP_USE_TLS=true
 # Optional verbose SMTP logging
 SMTP_DEBUG=false
 # Use {token} placeholder or leave it off to append ?token=...
 PASSWORD_RESET_URL_BASE=https://your-frontend/reset?token={token}
+
+### Custom domain checklist
+
+1. Point a `CNAME` for your domain (for example, `babynameshive.com`) to your Railway subdomain (`<service>.up.railway.app`).
+2. Update `ALLOWED_ORIGIN` to include `https://your-domain.com` so CORS allows the SPA.
+3. Set `PASSWORD_RESET_URL_BASE` to the same domain so password-reset links open on the branded site.
+4. Redeploy the backend so the new environment variables take effect.
 ```

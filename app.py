@@ -3,7 +3,7 @@ from __future__ import annotations
 from werkzeug.security import generate_password_hash, check_password_hash
 
 """
-Flask server for BabyName Duel (MySQL path)
+Flask server for BabyNames Hive (MySQL path)
 - Serves the built SPA from /dist (when present)
 - Provides REST API for sessions, members, lists, scores, tiebreaks
 - Config via environment variables (export from .env.local before running)
@@ -38,6 +38,8 @@ from sqlalchemy.orm import declarative_base, sessionmaker, scoped_session, relat
 from sqlalchemy.exc import OperationalError
 from dotenv import load_dotenv
 import certifi
+from sendgrid import SendGridAPIClient
+from sendgrid.helpers.mail import Mail, Content
 from google.oauth2 import id_token as google_id_token
 from google.auth.transport import requests as google_requests
 import requests as http_requests
@@ -58,7 +60,7 @@ GOOGLE_OAUTH_CLIENT_ID = os.getenv("GOOGLE_OAUTH_CLIENT_ID")
 FIREBASE_PROJECT_ID = os.getenv("FIREBASE_PROJECT_ID")
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-3.5-turbo")
+OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 OPENAI_TTS_MODEL = os.getenv("OPENAI_TTS_MODEL", "gpt-4o-mini-tts")
 OPENAI_TTS_VOICE = os.getenv("OPENAI_TTS_VOICE", "alloy")
 OPENAI_TTS_FORMAT = os.getenv("OPENAI_TTS_FORMAT", "mp3")
@@ -72,6 +74,7 @@ SMTP_PASSWORD = os.getenv("SMTP_PASSWORD")
 SMTP_USE_TLS = os.getenv("SMTP_USE_TLS", "true").lower() in {"1", "true", "yes"}
 SMTP_DEBUG = os.getenv("SMTP_DEBUG", "false").lower() in {"1", "true", "yes"}
 PASSWORD_RESET_URL_BASE = os.getenv("PASSWORD_RESET_URL_BASE")
+SENDGRID_API_KEY = os.getenv("SENDGRID_API_KEY")
 
 # ----------------------------------------------------------------------------
 # App & Config
@@ -207,6 +210,64 @@ def _isoformat(value):
     return str(value)
 
 
+def _first_name_from_email(value: str) -> str:
+    if not value:
+        return "friend"
+    name = value.split("@")[0]
+    name = re.sub(r"[._+\-]+", " ", name).strip()
+    return name.title() if name else "friend"
+
+
+def _render_reset_email_html(*, first_name: str, reset_link: Optional[str]) -> str:
+    if reset_link:
+        button_html = f"""
+        <p style=\"text-align:center;margin:24px 0 16px;\">
+          <a style=\"display:inline-block;padding:14px 32px;border-radius:999px;background:linear-gradient(135deg,#38bdf8,#f472b6);color:#ffffff;text-decoration:none;font-weight:600;letter-spacing:0.3px;box-shadow:0 12px 24px rgba(244,114,182,0.22);\"
+             href=\"{reset_link}\" target=\"_blank\" rel=\"noopener\">
+            Reset Password
+          </a>
+        </p>
+        """
+    else:
+        button_html = """
+        <p style=\"margin:20px 0;\">If the button is missing, open the app and request another reset link or contact support for help.</p>
+        """
+
+    return f"""
+    <!DOCTYPE html>
+    <html lang=\"en\">
+    <head>
+      <meta charset=\"UTF-8\" />
+      <title>Reset your BabyNames Hive password</title>
+    </head>
+    <body style=\"margin:0;padding:0;background:#f5f7ff;font-family:'Poppins','Segoe UI',sans-serif;color:#374151;\">
+      <div style=\"max-width:520px;margin:32px auto;background:linear-gradient(135deg,#f9e0ff,#e0f3ff);border-radius:24px;padding:32px;border:1px solid rgba(147,197,253,0.35);box-shadow:0 18px 35px rgba(151,149,240,0.18);\">
+        <div style=\"text-align:center;margin-bottom:20px;\">
+          <h1 style=\"margin:0;font-size:28px;color:#1d4ed8;letter-spacing:0.5px;\">BabyNames Hive</h1>
+          <p style=\"margin:6px 0 0;font-size:14px;color:#6b7280;\">Helping families find the perfect name together 🤍</p>
+        </div>
+        <div style=\"text-align:center;font-size:26px;margin:12px 0 24px;\">👶🍼🎀🧸🌙💙💖</div>
+        <div style=\"background:rgba(255,255,255,0.94);border-radius:20px;padding:24px;border:1px solid rgba(244,114,182,0.25);\">
+          <h2 style=\"margin:0 0 12px;color:#db2777;font-size:20px;display:flex;align-items:center;gap:8px;\">✨ Reset your password</h2>
+          <p>Hi <strong>{first_name}</strong>,</p>
+          <p>
+            We received a request to reset your BabyNames Hive password. Click the button below within the next hour to choose a new one and get back to brainstorming adorable baby names!
+          </p>
+          {button_html}
+          <p style=\"margin-top:18px;\">
+            If you didn’t request a password reset, you can safely ignore this email. Your account will stay snug and secure. 🧸
+          </p>
+        </div>
+        <div style=\"margin-top:24px;font-size:12px;color:#6b7280;text-align:center;line-height:1.6;\">
+          Made with 💗 &amp; 💙 by the BabyNames Hive crew.<br />
+          Need help? Reach out at <a href=\"mailto:support@babyname-duel.com\" style=\"color:#2563eb;text-decoration:none;font-weight:600;\">support@babyname-duel.com</a>.
+        </div>
+      </div>
+    </body>
+    </html>
+    """
+
+
 def _create_notification(db, *, user_email: str, session_id: Optional[str], type_: str, payload: Optional[dict] = None):
     if not user_email:
         return None
@@ -289,7 +350,7 @@ def _generate_name_fact(name: str) -> Optional[dict]:
         "Authorization": f"Bearer {OPENAI_API_KEY}",
         "Content-Type": "application/json",
     }
-    payload = {
+    base_payload = {
         "model": OPENAI_MODEL,
         "messages": [
             {"role": "system", "content": "You are a helpful baby name expert."},
@@ -297,37 +358,56 @@ def _generate_name_fact(name: str) -> Optional[dict]:
         ],
         "max_tokens": 180,
         "temperature": 0.6,
-        "response_format": {
-            "type": "json_schema",
-            "json_schema": {
-                "name": "name_fact",
-                "schema": {
-                    "type": "object",
-                    "properties": {
-                        "description": {"type": "string"},
-                        "phonetic": {"type": "string"}
-                    },
-                    "required": ["description"],
-                    "additionalProperties": False,
+    }
+
+    payloads = []
+    payload_with_schema = dict(base_payload)
+    payload_with_schema["response_format"] = {
+        "type": "json_schema",
+        "json_schema": {
+            "name": "name_fact",
+            "schema": {
+                "type": "object",
+                "properties": {
+                    "description": {"type": "string"},
+                    "phonetic": {"type": "string"}
                 },
+                "required": ["description"],
+                "additionalProperties": False,
             },
         },
     }
+    payloads.append(payload_with_schema)
+    payloads.append(dict(base_payload))  # fallback without response_format
 
     description = ""
     phonetic = ""
 
-    try:
-        resp = http_requests.post(
-            "https://api.openai.com/v1/chat/completions",
-            headers=headers,
-            json=payload,
-            timeout=20,
-        )
-        resp.raise_for_status()
-        data = resp.json()
+    for attempt_payload in payloads:
+        try:
+            resp = http_requests.post(
+                "https://api.openai.com/v1/chat/completions",
+                headers=headers,
+                json=attempt_payload,
+                timeout=20,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+        except http_requests.HTTPError as exc:
+            status = getattr(exc.response, "status_code", None) if hasattr(exc, "response") else None
+            if status == 400 and attempt_payload is payloads[0]:
+                # try fallback without response_format
+                continue
+            print(f"Failed to generate name metadata for {name}: {exc}")
+            return None
+        except (http_requests.RequestException, ValueError, KeyError, IndexError) as exc:  # pragma: no cover
+            print(f"Failed to generate name metadata for {name}: {exc}")
+            return None
+
         raw_text = data.get("choices", [{}])[0].get("message", {}).get("content", "")
         raw_text = (raw_text or "").strip()
+        if not raw_text and data.get("choices"):
+            raw_text = json.dumps(data["choices"][0].get("message", {}), ensure_ascii=False)
         if raw_text:
             try:
                 parsed = json.loads(raw_text)
@@ -337,9 +417,8 @@ def _generate_name_fact(name: str) -> Optional[dict]:
             else:
                 description = (parsed.get("description") or "").strip()
                 phonetic = (parsed.get("phonetic") or "").strip()
-    except (http_requests.RequestException, ValueError, KeyError, IndexError) as exc:  # pragma: no cover
-        print(f"Failed to generate name metadata for {name}: {exc}")
-        return None
+        if description or phonetic:
+            break
 
     description = (description or "").strip()
     if description:
@@ -566,12 +645,47 @@ class NameMetadata(Base):
 ensure_schema()
 seed_owner_states()
 
+app.logger.info(
+    "Email config -> sendgrid=%s, smtp_host=%s, sender=%s, tls=%s",
+    bool(SENDGRID_API_KEY),
+    SMTP_HOST,
+    EMAIL_SENDER,
+    SMTP_USE_TLS,
+)
 
-def _send_email(*, subject: str, body: str, recipient: str) -> bool:
+
+def _send_email(*, subject: str, body: str, recipient: str, html_body: Optional[str] = None) -> bool:
     """Basic SMTP email helper; returns True on success."""
-    if not EMAIL_SENDER or not SMTP_HOST:
-        # Email not configured; log and skip (tests expect token in response).
-        app.logger.info("Email not configured; would send to %s", recipient)
+    if not EMAIL_SENDER:
+        app.logger.info("Email sender not configured; would send to %s", recipient)
+        return False
+
+    if SENDGRID_API_KEY:
+        sg_message = Mail(
+            from_email=EMAIL_SENDER,
+            to_emails=recipient,
+            subject=subject,
+        )
+        sg_message.add_content(Content("text/plain", body))
+        sg_message.add_content(Content("text/html", html_body or body.replace("\n", "<br>")))
+        try:
+            app.logger.info("Attempting to send email via SendGrid to %s", recipient)
+            sg = SendGridAPIClient(SENDGRID_API_KEY)
+            response = sg.send(sg_message)
+            if 200 <= response.status_code < 300:
+                app.logger.info("SendGrid email dispatched to %s", recipient)
+                return True
+            app.logger.error(
+                "SendGrid email failed for %s: status=%s body=%s",
+                recipient,
+                response.status_code,
+                response.body,
+            )
+        except Exception as exc:  # pragma: no cover - dependent on SendGrid runtime
+            app.logger.error("SendGrid email error for %s: %s", recipient, exc)
+
+    if not SMTP_HOST:
+        app.logger.info("SMTP host not configured; skipping SMTP fallback for %s", recipient)
         return False
 
     message = EmailMessage()
@@ -579,6 +693,8 @@ def _send_email(*, subject: str, body: str, recipient: str) -> bool:
     message["From"] = EMAIL_SENDER
     message["To"] = recipient
     message.set_content(body)
+    if html_body:
+        message.add_alternative(html_body, subtype="html")
 
     try:
         app.logger.info(
@@ -1942,11 +2058,11 @@ def api_reset_password_request():
         else:
             reset_link = f"{PASSWORD_RESET_URL_BASE}?token={token}"
 
-    subject = "Reset your BabyName Duel password"
+    subject = "Reset your BabyNames Hive password"
     if reset_link:
         body = (
             "Hello!\n\n"
-            "We received a request to reset your BabyName Duel password. "
+            "We received a request to reset your BabyNames Hive password. "
             "Click the link below within the next hour to choose a new password:\n\n"
             f"{reset_link}\n\n"
             "If you didn't request this, you can safely ignore the message."
@@ -1954,12 +2070,16 @@ def api_reset_password_request():
     else:
         body = (
             "Hello!\n\n"
-            "Use the token below to reset your BabyName Duel password within the next hour:\n\n"
-            f"Token: {token}\n\n"
-            "Paste it into the reset form in the app."
+            "We received a request to reset your BabyNames Hive password, but a link wasn't available. "
+            "Please open the app and request another reset link or contact support if you need help."
         )
 
-    email_sent = _send_email(subject=subject, body=body, recipient=email)
+    html_body = _render_reset_email_html(
+        first_name=_first_name_from_email(email),
+        reset_link=reset_link,
+    )
+
+    email_sent = _send_email(subject=subject, body=body, html_body=html_body, recipient=email)
 
     if email_sent:
         return jsonify({"ok": True, "message": "If the email exists, a reset link has been sent."}), 200

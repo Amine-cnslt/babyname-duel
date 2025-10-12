@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowLeft,
-  Baby,
   Bell,
   Info,
   Music,
@@ -48,10 +47,12 @@ const Card = ({ children, className = "" }) => (
 const FloatingDecor = React.memo(() => (
   <div className="bnd-floating">
     <span style={{ top: "12%", left: "6%" }}>🍼</span>
-    <span style={{ top: "18%", right: "12%" }}>🧸</span>
+    <span className="bnd-flower" style={{ top: "18%", right: "12%" }}>🌸</span>
     <span style={{ bottom: "16%", left: "18%" }}>🌙</span>
-    <span style={{ bottom: "28%", right: "22%" }}>🎀</span>
+    <span className="bnd-flower" style={{ bottom: "28%", right: "22%" }}>🌼</span>
     <span style={{ top: "32%", left: "42%" }}>👶</span>
+    <span className="bnd-bee bnd-bee-one" style={{ top: "22%", left: "12%" }}>🐝</span>
+    <span className="bnd-bee bnd-bee-two" style={{ bottom: "22%", right: "18%" }}>🐝</span>
     <div className="bnd-bubble" style={{ top: "8%", right: "6%" }} />
     <div className="bnd-bubble" style={{ bottom: "10%", left: "8%" }} />
     <div className="bnd-bubble" style={{ top: "48%", left: "12%" }} />
@@ -156,13 +157,13 @@ const TopNav = ({ user, onSignOut, ambientEnabled, onToggleAmbient }) => (
     <div className="mx-auto max-w-6xl px-4 py-3 flex items-center justify-between">
       <div className="flex items-center gap-3 text-slate-800 font-semibold">
         <div className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br from-pink-100 via-sky-100 to-indigo-100 text-pink-500 animate-soft-bounce shadow-inner">
-          <Baby className="h-5 w-5" />
+          <span className="text-2xl" role="img" aria-label="Bee mascot">🐝</span>
         </div>
         <div className="flex flex-col">
           <span className="text-lg font-bold">
-            BabyName <span className="font-extrabold text-pink-500">Duel</span>
+            BabyNames <span className="font-extrabold text-amber-500">Hive</span>
           </span>
-          <span className="text-xs font-normal text-slate-500">Owners, lists, fair scoring.</span>
+          <span className="text-xs font-normal text-slate-500">Where tiny names buzz to life.</span>
         </div>
       </div>
       <div className="flex items-center gap-3">

@@ -39,6 +39,38 @@ body {
   filter: drop-shadow(0 8px 20px rgba(236, 72, 153, 0.18));
 }
 
+.bnd-bee {
+  position: absolute;
+  font-size: clamp(2.2rem, 2.2vw + 1rem, 3.2rem);
+  filter: drop-shadow(0 10px 18px rgba(250, 204, 21, 0.35));
+  animation-duration: 16s;
+  animation-timing-function: ease-in-out;
+  animation-iteration-count: infinite;
+}
+
+.bnd-bee::after {
+  content: "✨";
+  position: absolute;
+  left: -18px;
+  top: 6px;
+  font-size: 0.85em;
+  opacity: 0.55;
+  animation: bnd-bee-trail 2.6s ease-in-out infinite;
+}
+
+.bnd-bee-one { animation-name: bnd-bee-loop-a; }
+.bnd-bee-two {
+  animation-name: bnd-bee-loop-b;
+  animation-duration: 18s;
+  animation-delay: -4s;
+}
+
+.bnd-flower {
+  display: inline-block;
+  animation: bnd-flower-sway 14s ease-in-out infinite;
+  filter: drop-shadow(0 6px 14px rgba(236, 72, 153, 0.18));
+}
+
 .bnd-bubble {
   width: clamp(90px, 12vw, 180px);
   height: clamp(90px, 12vw, 180px);
@@ -106,4 +138,32 @@ body {
 @keyframes bnd-soft-bounce {
   0%, 100% { transform: translateY(0); }
   50% { transform: translateY(-6px); }
+}
+
+@keyframes bnd-bee-loop-a {
+  0% { transform: translate3d(0, 0, 0) rotate(4deg); }
+  20% { transform: translate3d(32px, -22px, 0) rotate(-6deg); }
+  40% { transform: translate3d(68px, 6px, 0) rotate(3deg); }
+  60% { transform: translate3d(34px, -16px, 0) rotate(-4deg); }
+  80% { transform: translate3d(-6px, 18px, 0) rotate(5deg); }
+  100% { transform: translate3d(0, 0, 0) rotate(4deg); }
+}
+
+@keyframes bnd-bee-loop-b {
+  0% { transform: translate3d(0, 0, 0) rotate(-3deg); }
+  25% { transform: translate3d(-28px, 20px, 0) rotate(6deg); }
+  50% { transform: translate3d(18px, -12px, 0) rotate(-4deg); }
+  75% { transform: translate3d(-34px, -6px, 0) rotate(5deg); }
+  100% { transform: translate3d(0, 0, 0) rotate(-3deg); }
+}
+
+@keyframes bnd-bee-trail {
+  0%, 100% { transform: translateX(0) scaleY(1); opacity: 0.55; }
+  50% { transform: translateX(-6px) scaleY(0.88); opacity: 0.25; }
+}
+
+@keyframes bnd-flower-sway {
+  0%, 100% { transform: rotate(0deg) scale(1); }
+  40% { transform: rotate(6deg) scale(1.04); }
+  70% { transform: rotate(-5deg) scale(0.98); }
 }
