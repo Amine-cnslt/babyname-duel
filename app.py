@@ -68,6 +68,7 @@ SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
 SMTP_USERNAME = os.getenv("SMTP_USERNAME")
 SMTP_PASSWORD = os.getenv("SMTP_PASSWORD")
 SMTP_USE_TLS = os.getenv("SMTP_USE_TLS", "true").lower() in {"1", "true", "yes"}
+SMTP_DEBUG = os.getenv("SMTP_DEBUG", "false").lower() in {"1", "true", "yes"}
 PASSWORD_RESET_URL_BASE = os.getenv("PASSWORD_RESET_URL_BASE")
 
 # ----------------------------------------------------------------------------
@@ -578,6 +579,8 @@ def _send_email(*, subject: str, body: str, recipient: str) -> bool:
 
     try:
         with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=15) as server:
+            if SMTP_DEBUG:
+                server.set_debuglevel(1)
             if SMTP_USE_TLS:
                 context = ssl.create_default_context()
                 server.starttls(context=context)

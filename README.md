@@ -32,6 +32,8 @@ SMTP_PORT=587
 SMTP_USERNAME=apikey
 SMTP_PASSWORD=SG.xxxxxx
 SMTP_USE_TLS=true
+# Optional verbose SMTP logging
+SMTP_DEBUG=false
 # Use {token} placeholder or leave it off to append ?token=...
 PASSWORD_RESET_URL_BASE=https://your-frontend/reset?token={token}
 ```
