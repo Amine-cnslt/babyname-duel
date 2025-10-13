@@ -38,8 +38,13 @@ from sqlalchemy.orm import declarative_base, sessionmaker, scoped_session, relat
 from sqlalchemy.exc import OperationalError
 from dotenv import load_dotenv
 import certifi
-from sendgrid import SendGridAPIClient
-from sendgrid.helpers.mail import Mail, Content
+try:
+    from sendgrid import SendGridAPIClient
+    from sendgrid.helpers.mail import Mail, Content
+except ImportError:  # pragma: no cover - optional dependency
+    SendGridAPIClient = None
+    Mail = None
+    Content = None
 from google.oauth2 import id_token as google_id_token
 from google.auth.transport import requests as google_requests
 import requests as http_requests
@@ -293,6 +298,114 @@ def _render_reset_email_html(*, first_name: str, reset_link: Optional[str]) -> s
     </body>
     </html>
     """
+
+
+def _build_invite_email_plain(*, invitee_name: str, inviter_name: str, session_title: str, invite_link: str, existing_user: bool) -> str:
+    greeting = f"Hi {invitee_name},"
+    if existing_user:
+        intro = (
+            f"{inviter_name} just added you to the \"{session_title}\" session on BabyNames Hive.\n"
+            "Pop back in to add your list or check the latest scores.\n"
+        )
+        cta = f"Open the session: {invite_link}\n"
+    else:
+        intro = (
+            f"{inviter_name} invited you to join the \"{session_title}\" session on BabyNames Hive.\n"
+            "Use the secure link below to accept the invite and start sharing names together.\n"
+        )
+        cta = f"Accept your invite: {invite_link}\n"
+    closing = (
+        "\nIf you weren't expecting this message you can ignore it, but feel free to reach out to the inviter if you have questions.\n"
+        "\nHappy name brainstorming!\n"
+        "— BabyNames Hive"
+    )
+    return "\n".join([greeting, "", intro, cta, closing])
+
+
+def _render_invite_email_html(
+    *,
+    invitee_name: str,
+    inviter_name: str,
+    session_title: str,
+    invite_link: str,
+    existing_user: bool,
+) -> str:
+    action_label = "Open Session" if existing_user else "Accept Invite"
+    intro = (
+        f"{inviter_name} just added you to the <strong>{session_title}</strong> session."
+        if existing_user
+        else f"{inviter_name} invited you to join the <strong>{session_title}</strong> session."
+    )
+    helper_line = (
+        "Jump back in to add your list or see how the scores are shaping up."
+        if existing_user
+        else "Tap the button below to accept and start sharing your favorite names."
+    )
+    return f"""
+    <!DOCTYPE html>
+    <html lang=\"en\">
+    <head>
+      <meta charset=\"UTF-8\" />
+      <title>BabyNames Hive invitation</title>
+    </head>
+    <body style=\"margin:0;padding:0;background:#f5f7ff;font-family:'Poppins','Segoe UI',sans-serif;color:#374151;\">
+      <div style=\"max-width:520px;margin:32px auto;background:linear-gradient(135deg,#f9e0ff,#e0f3ff);border-radius:24px;padding:32px;border:1px solid rgba(147,197,253,0.35);box-shadow:0 18px 35px rgba(151,149,240,0.18);\">
+        <div style=\"text-align:center;margin-bottom:20px;\">
+          <h1 style=\"margin:0;font-size:28px;color:#1d4ed8;letter-spacing:0.5px;\">BabyNames Hive</h1>
+          <p style=\"margin:6px 0 0;font-size:14px;color:#6b7280;\">Helping families find the perfect name together 🤍</p>
+        </div>
+        <div style=\"text-align:center;font-size:26px;margin:12px 0 24px;\">👶🍼🎀🧸🌙💙💖</div>
+        <div style=\"background:rgba(255,255,255,0.94);border-radius:20px;padding:24px;border:1px solid rgba(244,114,182,0.25);\">
+          <h2 style=\"margin:0 0 12px;color:#db2777;font-size:20px;display:flex;align-items:center;gap:8px;\">🎉 You’re invited!</h2>
+          <p>Hi <strong>{invitee_name}</strong>,</p>
+          <p>{intro}</p>
+          <p>{helper_line}</p>
+          <p style=\"text-align:center;margin:24px 0 16px;\">
+            <a style=\"display:inline-block;padding:14px 32px;border-radius:999px;background:linear-gradient(135deg,#38bdf8,#f472b6);color:#ffffff;text-decoration:none;font-weight:600;letter-spacing:0.3px;box-shadow:0 12px 24px rgba(244,114,182,0.22);\"
+               href=\"{invite_link}\" target=\"_blank\" rel=\"noopener\">
+              {action_label}
+            </a>
+          </p>
+          <p style=\"margin-top:18px;\">If the button does not work, copy and paste this link into your browser:<br /><span style=\"word-break:break-all;color:#2563eb;\">{invite_link}</span></p>
+          <p style=\"margin-top:18px;\">If this wasn’t meant for you, you can safely ignore it.</p>
+        </div>
+        <div style=\"margin-top:24px;font-size:12px;color:#6b7280;text-align:center;line-height:1.6;\">
+          Made with 💗 &amp; 💙 by the BabyNames Hive crew.<br />
+          Need help? Reach out at <a href=\"mailto:support@babyname-duel.com\" style=\"color:#2563eb;text-decoration:none;font-weight:600;\">support@babyname-duel.com</a>.
+        </div>
+      </div>
+    </body>
+    </html>
+    """
+
+
+def _send_session_invite_email(
+    *,
+    session: Session,
+    owner_email: str,
+    invite_email: str,
+    invite_link: str,
+    existing_user: bool,
+) -> bool:
+    session_title = session.title or "BabyNames Hive session"
+    invitee_name = _first_name_from_email(invite_email)
+    inviter_name = _first_name_from_email(owner_email)
+    subject = f"You're invited to {session_title}"
+    body = _build_invite_email_plain(
+        invitee_name=invitee_name,
+        inviter_name=inviter_name,
+        session_title=session_title,
+        invite_link=invite_link,
+        existing_user=existing_user,
+    )
+    html_body = _render_invite_email_html(
+        invitee_name=invitee_name,
+        inviter_name=inviter_name,
+        session_title=session_title,
+        invite_link=invite_link,
+        existing_user=existing_user,
+    )
+    return _send_email(subject=subject, body=body, html_body=html_body, recipient=invite_email)
 
 
 def _create_notification(db, *, user_email: str, session_id: Optional[str], type_: str, payload: Optional[dict] = None):
@@ -698,7 +811,7 @@ def _send_email(*, subject: str, body: str, recipient: str, html_body: Optional[
         app.logger.info("Email sender not configured; would send to %s", recipient)
         return False
 
-    if SENDGRID_API_KEY:
+    if SENDGRID_API_KEY and SendGridAPIClient and Mail and Content:
         sg_message = Mail(
             from_email=EMAIL_SENDER,
             to_emails=recipient,
@@ -721,6 +834,8 @@ def _send_email(*, subject: str, body: str, recipient: str, html_body: Optional[
             )
         except Exception as exc:  # pragma: no cover - dependent on SendGrid runtime
             app.logger.error("SendGrid email error for %s: %s", recipient, exc)
+    elif SENDGRID_API_KEY and (not SendGridAPIClient or not Mail or not Content):
+        app.logger.warning("SendGrid configured but sendgrid package not installed; skipping SendGrid delivery.")
 
     if not SMTP_HOST:
         app.logger.info("SMTP host not configured; skipping SMTP fallback for %s", recipient)
@@ -817,6 +932,7 @@ def _invite_participants(db, *, session: Session, owner_email: str, invite_specs
                 "status": "already-member",
                 "existingUser": user_exists,
                 "link": None,
+                "emailSent": False,
             })
             continue
 
@@ -825,11 +941,20 @@ def _invite_participants(db, *, session: Session, owner_email: str, invite_specs
             _ensure_owner_list_state(db, session_id, invite_email)
             # remove any pending invite tokens for cleanliness
             db.query(SessionInvite).filter_by(session_id=session_id, email=invite_email).delete()
+            member_link = f"{origin}/?sid={session_id}&participant=1"
+            email_sent = _send_session_invite_email(
+                session=session,
+                owner_email=owner_email,
+                invite_email=invite_email,
+                invite_link=member_link,
+                existing_user=True,
+            )
             results.append({
                 "email": invite_email,
                 "status": "added",
                 "existingUser": True,
-                "link": None,
+                "link": member_link,
+                "emailSent": email_sent,
             })
             _create_notification(
                 db,
@@ -863,11 +988,19 @@ def _invite_participants(db, *, session: Session, owner_email: str, invite_specs
                 invite_row.token = _uuid()
 
         link = f"{origin}/?sid={session_id}&participant=1&token={invite_row.token}"
+        email_sent = _send_session_invite_email(
+            session=session,
+            owner_email=owner_email,
+            invite_email=invite_email,
+            invite_link=link,
+            existing_user=False,
+        )
         results.append({
             "email": invite_email,
             "status": "invite-sent",
             "existingUser": False,
             "link": link,
+            "emailSent": email_sent,
         })
 
     return results
@@ -1384,6 +1517,23 @@ def api_get_session(sid):
         session_doc["listStates"] = state_map
         session_doc["viewerRole"] = member.role if member else None
         session_doc["invitesLocked"] = bool(session.invites_locked)
+        if include_tokens:
+            invite_origin = _compute_invite_origin(request)
+            invite_rows = (
+                db.query(SessionInvite)
+                .filter_by(session_id=sid)
+                .order_by(SessionInvite.created_at.asc())
+                .all()
+            )
+            session_doc["pendingInvites"] = [
+                {
+                    "email": row.email,
+                    "role": row.role,
+                    "sentAt": _isoformat(row.created_at),
+                    "link": f"{invite_origin}/?sid={sid}&participant=1&token={row.token}" if row.token else None,
+                }
+                for row in invite_rows
+            ]
 
         list_rows = (
             db.query(ListItem)

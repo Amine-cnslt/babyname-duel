@@ -747,6 +747,7 @@ const ParticipantsPanel = ({
 }) => {
   const [email, setEmail] = useState("");
   const participants = session?.participantIds || session?.voterIds || [];
+  const pendingInvites = Array.isArray(session?.pendingInvites) ? session.pendingInvites : [];
   const focusLabel = NAME_FOCUS_LABELS[session?.nameFocus] || NAME_FOCUS_LABELS.mix;
 
   const headerAction = isOwner ? (
@@ -830,7 +831,28 @@ const ParticipantsPanel = ({
               </div>
             </div>
           ))}
-          {!participants.length && !session?.ownerIds?.length ? (
+          {pendingInvites.length ? (
+            <div className="mt-2 space-y-2">
+              <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Pending invites</div>
+              {pendingInvites.map((invite) => (
+                <div
+                  key={`${invite.email}-${invite.link || invite.sentAt || "pending"}`}
+                  className="rounded-lg border border-dashed border-indigo-200 bg-indigo-50/60 px-3 py-2 text-sm text-indigo-900"
+                >
+                  <div className="font-medium">{invite.email}</div>
+                  <div className="text-xs text-indigo-600">
+                    {invite.sentAt ? `Invited ${formatDate(invite.sentAt)}` : "Awaiting response"}
+                  </div>
+                  {invite.link ? (
+                    <div className="mt-1 text-[11px] text-indigo-500 break-all">
+                      {invite.link}
+                    </div>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+          ) : null}
+          {!participants.length && !session?.ownerIds?.length && !pendingInvites.length ? (
             <div className="rounded-lg border border-dashed border-slate-200 px-3 py-4 text-center text-xs text-slate-500">
               No participants yet.
             </div>
@@ -2022,10 +2044,16 @@ export default function App() {
       });
       const message = (res.results || [])
         .map((row) => {
-          if (row.status === "added") return `${row.email} added as participant.`;
-          if (row.status === "invite-sent") return `${row.email} invited (link generated).`;
+          const emailNote =
+            row.emailSent === undefined
+              ? ""
+              : row.emailSent
+                ? " Email sent."
+                : " Email delivery not configured.";
+          if (row.status === "added") return `${row.email} added as participant.${emailNote}`;
+          if (row.status === "invite-sent") return `${row.email} invited (link generated).${emailNote}`;
           if (row.status === "already-member") return `${row.email} already participating.`;
-          return `${row.email}: ${row.status}`;
+          return `${row.email}: ${row.status}${emailNote}`;
         })
         .join("\n");
       if (message) alert(message);
