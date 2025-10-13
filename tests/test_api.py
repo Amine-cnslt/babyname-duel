@@ -87,6 +87,7 @@ def test_inviting_new_participant_sends_email_and_tracks_pending_invite(client, 
     session_data = payload["session"]
     assert session_data["invites"][0]["email"] == invitee_email
     assert session_data["invites"][0]["emailSent"] is True
+    assert "mode=signup" in session_data["invites"][0]["link"]
 
     assert sent_messages, "Expected invite email to be dispatched"
     assert sent_messages[0]["recipient"] == invitee_email
@@ -110,6 +111,7 @@ def test_inviting_new_participant_sends_email_and_tracks_pending_invite(client, 
     pending = session_payload["session"].get("pendingInvites") or []
     assert any(inv["email"] == invitee_email for inv in pending)
     assert pending[0]["link"]
+    assert "mode=signup" in pending[0]["link"]
 
 
 def test_inviting_existing_user_sends_notification_email(client, monkeypatch):
@@ -148,6 +150,7 @@ def test_inviting_existing_user_sends_notification_email(client, monkeypatch):
     row = invite_payload["results"][0]
     assert row["status"] == "added"
     assert row["emailSent"] is True
+    assert "mode=signin" in row["link"]
 
     assert any(msg["recipient"] == participant_email for msg in sent_messages)
 

@@ -48,6 +48,7 @@ except ImportError:  # pragma: no cover - optional dependency
 from google.oauth2 import id_token as google_id_token
 from google.auth.transport import requests as google_requests
 import requests as http_requests
+from urllib.parse import urlencode
 
 # Load .env.local using an absolute path (more reliable than relative cwd)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -406,6 +407,17 @@ def _send_session_invite_email(
         existing_user=existing_user,
     )
     return _send_email(subject=subject, body=body, html_body=html_body, recipient=invite_email)
+
+
+def _build_invite_link(origin: str, session_id: str, *, token: Optional[str], existing_user: bool) -> str:
+    params = {
+        "sid": session_id,
+        "participant": "1",
+        "mode": "signin" if existing_user else "signup",
+    }
+    if token:
+        params["token"] = token
+    return f"{origin}/?{urlencode(params)}"
 
 
 def _create_notification(db, *, user_email: str, session_id: Optional[str], type_: str, payload: Optional[dict] = None):
@@ -941,7 +953,7 @@ def _invite_participants(db, *, session: Session, owner_email: str, invite_specs
             _ensure_owner_list_state(db, session_id, invite_email)
             # remove any pending invite tokens for cleanliness
             db.query(SessionInvite).filter_by(session_id=session_id, email=invite_email).delete()
-            member_link = f"{origin}/?sid={session_id}&participant=1"
+            member_link = _build_invite_link(origin, session_id, token=None, existing_user=True)
             email_sent = _send_session_invite_email(
                 session=session,
                 owner_email=owner_email,
@@ -987,7 +999,7 @@ def _invite_participants(db, *, session: Session, owner_email: str, invite_specs
             if not invite_row.token:
                 invite_row.token = _uuid()
 
-        link = f"{origin}/?sid={session_id}&participant=1&token={invite_row.token}"
+        link = _build_invite_link(origin, session_id, token=invite_row.token, existing_user=False)
         email_sent = _send_session_invite_email(
             session=session,
             owner_email=owner_email,
@@ -1530,7 +1542,7 @@ def api_get_session(sid):
                     "email": row.email,
                     "role": row.role,
                     "sentAt": _isoformat(row.created_at),
-                    "link": f"{invite_origin}/?sid={sid}&participant=1&token={row.token}" if row.token else None,
+                    "link": _build_invite_link(invite_origin, sid, token=row.token, existing_user=False),
                 }
                 for row in invite_rows
             ]
