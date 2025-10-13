@@ -1,4 +1,5 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   ArrowLeft,
   Bell,
@@ -101,12 +102,16 @@ const FloatingDecor = React.memo(() => (
 
 const FactButton = ({ fact }) => {
   const [open, setOpen] = useState(false);
+  const [position, setPosition] = useState({ top: 0, left: 0 });
+  const anchorRef = useRef(null);
+  const tooltipRef = useRef(null);
+
   if (!fact || (!fact.info && !fact.audioBase64)) {
     return null;
   }
 
   const audioUrl = fact.audioBase64
-    ? `data:${fact.audioMime || 'audio/mpeg'};base64,${fact.audioBase64}`
+    ? `data:${fact.audioMime || "audio/mpeg"};base64,${fact.audioBase64}`
     : null;
 
   const handleToggle = () => {
@@ -123,21 +128,61 @@ const FactButton = ({ fact }) => {
     }
   };
 
-  return (
-    <div className="relative inline-block text-left">
-      <button
-        type="button"
-        onClick={handleToggle}
-        className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-slate-200 bg-white/70 text-indigo-500 shadow-sm transition hover:bg-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-indigo-200"
-        aria-label="Show name details"
-        title="Show name details"
-      >
-        <Info className="h-3.5 w-3.5" />
-      </button>
-      {open ? (
-        <div className="absolute left-1/2 z-40 mt-2 w-56 -translate-x-1/2 rounded-lg border border-slate-200 bg-white p-3 text-left text-xs shadow-lg">
+  const updatePosition = useCallback(() => {
+    if (!anchorRef.current) return;
+    const rect = anchorRef.current.getBoundingClientRect();
+    const tooltipHeight = tooltipRef.current?.offsetHeight ?? 0;
+    const preferredTop = rect.bottom + 8;
+    const fallbackTop = rect.top - 8 - tooltipHeight;
+    const fitsBelow = preferredTop + tooltipHeight <= window.innerHeight;
+    const top = Math.max(8, fitsBelow ? preferredTop : Math.max(8, fallbackTop));
+    let left = rect.left + rect.width / 2;
+    const margin = 16;
+    left = Math.max(margin, Math.min(window.innerWidth - margin, left));
+    setPosition({ top, left });
+  }, []);
+
+  useLayoutEffect(() => {
+    if (!open) return;
+    updatePosition();
+    const handleReposition = () => updatePosition();
+    window.addEventListener("resize", handleReposition);
+    window.addEventListener("scroll", handleReposition, true);
+    return () => {
+      window.removeEventListener("resize", handleReposition);
+      window.removeEventListener("scroll", handleReposition, true);
+    };
+  }, [open, updatePosition]);
+
+  useEffect(() => {
+    if (!open) return;
+    const handlePointerDown = (event) => {
+      if (anchorRef.current?.contains(event.target)) return;
+      if (tooltipRef.current?.contains(event.target)) return;
+      setOpen(false);
+    };
+    const handleKeyDown = (event) => {
+      if (event.key === "Escape") {
+        setOpen(false);
+      }
+    };
+    window.addEventListener("pointerdown", handlePointerDown, true);
+    window.addEventListener("keydown", handleKeyDown, true);
+    return () => {
+      window.removeEventListener("pointerdown", handlePointerDown, true);
+      window.removeEventListener("keydown", handleKeyDown, true);
+    };
+  }, [open]);
+
+  const tooltip = open
+    ? createPortal(
+        <div
+          ref={tooltipRef}
+          className="fixed z-[2147483647] w-56 max-w-[min(90vw,224px)] rounded-lg border border-slate-200 bg-white p-3 text-left text-xs shadow-2xl"
+          style={{ top: position.top, left: position.left, transform: "translate(-50%, 0)" }}
+        >
           <div className="font-semibold text-slate-700">Name insight</div>
-          <div className="mt-1 text-slate-600 whitespace-pre-line">
+          <div className="mt-1 whitespace-pre-line text-slate-600">
             {fact.info || "No description available yet."}
           </div>
           {fact.phonetic ? (
@@ -156,15 +201,31 @@ const FactButton = ({ fact }) => {
           ) : null}
           <button
             type="button"
-            onClick={handleToggle}
+            onClick={() => setOpen(false)}
             className="absolute -right-2 -top-2 h-5 w-5 rounded-full bg-slate-200 text-[10px] text-slate-600"
             aria-label="Close name insight"
           >
             ×
           </button>
-        </div>
-      ) : null}
-    </div>
+        </div>,
+        document.body,
+      )
+    : null;
+
+  return (
+    <>
+      <button
+        ref={anchorRef}
+        type="button"
+        onClick={handleToggle}
+        className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-slate-200 bg-white/70 text-indigo-500 shadow-sm transition hover:bg-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-indigo-200"
+        aria-label="Show name details"
+        title="Show name details"
+      >
+        <Info className="h-3.5 w-3.5" />
+      </button>
+      {tooltip}
+    </>
   );
 };
 
