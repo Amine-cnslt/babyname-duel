@@ -146,6 +146,8 @@ def ensure_schema(retries: int = 5, delay: float = 2.0):
                         conn.execute(sql_text('ALTER TABLE name_metadata ADD COLUMN audio_base64 TEXT'))
                     if 'audio_mime' not in meta_cols:
                         conn.execute(sql_text('ALTER TABLE name_metadata ADD COLUMN audio_mime VARCHAR(64)'))
+                if not inspector.has_table('activity_logs'):
+                    ActivityLog.__table__.create(bind=engine, checkfirst=True)
             return
         except OperationalError as exc:
             attempt += 1
@@ -208,6 +210,31 @@ def _isoformat(value):
     if isinstance(value, datetime):
         return value.replace(microsecond=0).isoformat() + "Z"
     return str(value)
+
+
+def _log_activity(db, *, actor: Optional[str], action: str, session_id: Optional[str] = None, details: Optional[dict] = None):
+    if not action:
+        return
+    details_str = None
+    if details is not None:
+        if isinstance(details, (str, bytes)):
+            details_str = details if isinstance(details, str) else details.decode("utf-8", "ignore")
+        else:
+            try:
+                details_str = json.dumps(details, default=str)
+            except Exception as exc:
+                app.logger.warning("Unable to serialize activity details for %s: %s", action, exc)
+                details_str = json.dumps({"__repr__": repr(details)})
+    try:
+        entry = ActivityLog(
+            actor_email=actor,
+            action=action,
+            session_id=session_id,
+            details=details_str,
+        )
+        db.add(entry)
+    except Exception as exc:
+        app.logger.warning("Failed to record activity %s: %s", action, exc)
 
 
 def _first_name_from_email(value: str) -> str:
@@ -642,6 +669,17 @@ class NameMetadata(Base):
     updated_at = Column(DateTime, default=now_utc, onupdate=now_utc, nullable=False)
 
 
+class ActivityLog(Base):
+    __tablename__ = "activity_logs"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    actor_email = Column(String(320), nullable=True, index=True)
+    action = Column(String(64), nullable=False)
+    session_id = Column(String(36), nullable=True, index=True)
+    details = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=now_utc, nullable=False, index=True)
+
+
 ensure_schema()
 seed_owner_states()
 
@@ -963,8 +1001,18 @@ def api_signup():
 
     hashed = generate_password_hash(password)
     user = User(email=email, display_name=full_name, password_hash=hashed)
-    db.add(user)
-    db.commit()
+    try:
+        db.add(user)
+        _log_activity(
+            db,
+            actor=email,
+            action="user.signup",
+            details={"displayName": full_name},
+        )
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
     return jsonify({"ok": True, "user": {"email": email, "displayName": full_name}})
 
 # --- Login endpoint (MySQL-backed) ---
@@ -977,6 +1025,17 @@ def api_login():
     user = db.query(User).filter_by(email=email).first()
     if not user or not check_password_hash(user.password_hash, password):
         return jsonify({"ok": False, "error": "Invalid credentials"}), 401
+    try:
+        _log_activity(
+            db,
+            actor=email,
+            action="user.login",
+            details={"method": "password"},
+        )
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
     return jsonify({"ok": True, "user": {"email": email, "displayName": user.display_name}})
 
 
@@ -1059,6 +1118,12 @@ def api_google_login():
         else:
             if display_name and user.display_name != display_name:
                 user.display_name = display_name
+        _log_activity(
+            db,
+            actor=user.email,
+            action="user.login",
+            details={"method": "google", "created": created},
+        )
         db.commit()
     except Exception as exc:
         db.rollback()
@@ -1170,6 +1235,18 @@ def api_create_session():
                 owner_email=email,
                 invite_specs=cleaned_invites,
                 origin=origin,
+            )
+            _log_activity(
+                db,
+                actor=email,
+                action="session.create",
+                session_id=sid,
+                details={
+                    "title": session.title,
+                    "requiredNames": required_names,
+                    "nameFocus": name_focus,
+                    "invitedCount": len(invite_payload),
+                },
             )
             db.commit()
         except Exception as exc:
@@ -1439,6 +1516,13 @@ def api_join_session():
         if existing:
             _ensure_owner_list_state(db, sid, email)
             db.query(SessionInvite).filter_by(session_id=sid, email=email).delete()
+            _log_activity(
+                db,
+                actor=email,
+                action="session.join",
+                session_id=sid,
+                details={"role": existing.role, "method": "rejoin"},
+            )
             db.commit()
             return jsonify({"ok": True, "role": existing.role, "sid": sid})
 
@@ -1453,6 +1537,13 @@ def api_join_session():
                 session_id=sid,
                 type_="participant_joined",
                 payload={"sid": sid, "email": email},
+            )
+            _log_activity(
+                db,
+                actor=email,
+                action="session.join",
+                session_id=sid,
+                details={"role": "participant", "method": "invite"},
             )
             db.commit()
         except Exception as exc:
@@ -1512,6 +1603,13 @@ def api_add_participants(sid):
                 invite_specs=cleaned_specs,
                 origin=origin,
             )
+            _log_activity(
+                db,
+                actor=owner_email,
+                action="participants.invite",
+                session_id=sid,
+                details={"count": len(results)},
+            )
             db.commit()
         except Exception as exc:
             db.rollback()
@@ -1547,6 +1645,13 @@ def api_remove_participant(sid):
         membership = _ensure_member(db, sid, target_email)
         if not membership:
             db.query(SessionInvite).filter_by(session_id=sid, email=target_email).delete()
+            _log_activity(
+                db,
+                actor=owner_email,
+                action="participants.remove",
+                session_id=sid,
+                details={"target": target_email, "removed": False},
+            )
             db.commit()
             return jsonify({"ok": True, "removed": False})
 
@@ -1565,6 +1670,13 @@ def api_remove_participant(sid):
                 session_id=sid,
                 type_="removed_from_session",
                 payload={"sid": sid, "title": session.title},
+            )
+            _log_activity(
+                db,
+                actor=owner_email,
+                action="participants.remove",
+                session_id=sid,
+                details={"target": target_email, "removed": True},
             )
             db.commit()
         except Exception as exc:
@@ -1606,6 +1718,13 @@ def api_lock_invites(sid):
                 type_="invites_locked",
                 payload={"sid": sid, "title": session.title},
             )
+        _log_activity(
+            db,
+            actor=email,
+            action="invites.lock",
+            session_id=sid,
+            details={"title": session.title},
+        )
         db.commit()
         _recompute_session_status(db, sid)
         return jsonify({"ok": True, "invitesLocked": True})
@@ -1713,6 +1832,13 @@ def api_upsert_list(sid):
                     type_="list_submitted",
                     payload={"sid": sid, "by": email},
                 )
+            _log_activity(
+                db,
+                actor=email,
+                action="list.submit" if finalize else "list.save",
+                session_id=sid,
+                details={"nameCount": len(cleaned), "finalize": finalize},
+            )
             db.commit()
         except Exception as exc:
             db.rollback()
@@ -1816,6 +1942,18 @@ def api_submit_score(sid):
                     type_="list_scored",
                     payload={"sid": sid, "by": email},
                 )
+            _log_activity(
+                db,
+                actor=email,
+                action="score.submit",
+                session_id=sid,
+                details={
+                    "listOwner": list_owner_uid,
+                    "name": name,
+                    "score": score_value,
+                    "completed": completed,
+                },
+            )
             db.commit()
         except Exception as exc:
             db.rollback()
@@ -1944,6 +2082,17 @@ def api_send_message(sid):
                         "direct": bool(recipient),
                     },
                 )
+            _log_activity(
+                db,
+                actor=sender,
+                action="message.send" if kind != "nudge" else "message.nudge",
+                session_id=sid,
+                details={
+                    "recipient": recipient,
+                    "kind": kind,
+                    "length": len(body),
+                },
+            )
             db.commit()
         except Exception as exc:
             db.rollback()
@@ -1975,6 +2124,13 @@ def api_archive_session(sid):
 
         session.status = "archived"
         try:
+            _log_activity(
+                db,
+                actor=email,
+                action="session.archive",
+                session_id=sid,
+                details={"title": session.title},
+            )
             db.commit()
         except Exception as exc:
             db.rollback()
@@ -2013,6 +2169,13 @@ def api_delete_session(sid):
             db.query(Notification).filter_by(session_id=sid).delete(synchronize_session=False)
             db.query(Member).filter_by(session_id=sid).delete(synchronize_session=False)
             db.delete(session)
+            _log_activity(
+                db,
+                actor=email,
+                action="session.delete",
+                session_id=sid,
+                details={"title": session.title},
+            )
             db.commit()
         except Exception as exc:
             db.rollback()
@@ -2042,8 +2205,18 @@ def api_reset_password_request():
     token = _uuid()  # Use existing _uuid function
     expires_at = now_utc() + timedelta(hours=1)
     reset = ResetToken(user_id=user.id, token=token, expires_at=expires_at)
-    db.add(reset)
-    db.commit()
+    try:
+        db.add(reset)
+        _log_activity(
+            db,
+            actor=email,
+            action="user.reset_password_request",
+            details={"expiresAt": _isoformat(expires_at)},
+        )
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
 
     reset_link = None
     if PASSWORD_RESET_URL_BASE:
@@ -2111,9 +2284,19 @@ def api_reset_password():
 
     user = reset.user
     hashed = generate_password_hash(new_password)
-    user.password_hash = hashed
-    db.delete(reset)  # One-time use
-    db.commit()
+    try:
+        user.password_hash = hashed
+        db.delete(reset)  # One-time use
+        _log_activity(
+            db,
+            actor=user.email,
+            action="user.reset_password",
+            details=None,
+        )
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
     return jsonify({"ok": True, "message": "Password reset successfully."}), 200
 
 
@@ -2161,6 +2344,12 @@ def api_notifications_mark_read():
                 db.query(Notification)
                 .filter(Notification.user_email == email, Notification.id.in_(ids))
                 .delete(synchronize_session=False)
+            )
+            _log_activity(
+                db,
+                actor=email,
+                action="notifications.mark_read",
+                details={"count": len(ids)},
             )
             db.commit()
         except Exception as exc:
