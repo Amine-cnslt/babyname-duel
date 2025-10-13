@@ -409,11 +409,12 @@ def _send_session_invite_email(
     return _send_email(subject=subject, body=body, html_body=html_body, recipient=invite_email)
 
 
-def _build_invite_link(origin: str, session_id: str, *, token: Optional[str], existing_user: bool) -> str:
+def _build_invite_link(origin: str, session_id: str, *, token: Optional[str], existing_user: bool, invite_email: str) -> str:
     params = {
         "sid": session_id,
         "participant": "1",
         "mode": "signin" if existing_user else "signup",
+        "email": invite_email,
     }
     if token:
         params["token"] = token
@@ -953,7 +954,13 @@ def _invite_participants(db, *, session: Session, owner_email: str, invite_specs
             _ensure_owner_list_state(db, session_id, invite_email)
             # remove any pending invite tokens for cleanliness
             db.query(SessionInvite).filter_by(session_id=session_id, email=invite_email).delete()
-            member_link = _build_invite_link(origin, session_id, token=None, existing_user=True)
+            member_link = _build_invite_link(
+                origin,
+                session_id,
+                token=None,
+                existing_user=True,
+                invite_email=invite_email,
+            )
             email_sent = _send_session_invite_email(
                 session=session,
                 owner_email=owner_email,
@@ -999,7 +1006,13 @@ def _invite_participants(db, *, session: Session, owner_email: str, invite_specs
             if not invite_row.token:
                 invite_row.token = _uuid()
 
-        link = _build_invite_link(origin, session_id, token=invite_row.token, existing_user=False)
+        link = _build_invite_link(
+            origin,
+            session_id,
+            token=invite_row.token,
+            existing_user=False,
+            invite_email=invite_email,
+        )
         email_sent = _send_session_invite_email(
             session=session,
             owner_email=owner_email,
@@ -1542,7 +1555,13 @@ def api_get_session(sid):
                     "email": row.email,
                     "role": row.role,
                     "sentAt": _isoformat(row.created_at),
-                    "link": _build_invite_link(invite_origin, sid, token=row.token, existing_user=False),
+                    "link": _build_invite_link(
+                        invite_origin,
+                        sid,
+                        token=row.token,
+                        existing_user=False,
+                        invite_email=row.email,
+                    ),
                 }
                 for row in invite_rows
             ]

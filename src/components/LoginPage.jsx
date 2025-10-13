@@ -6,6 +6,8 @@ const MODES = new Set(["signin", "signup", "forgot", "reset"]);
 export default function LoginPage({
   initialMode = "signin",
   initialResetToken = "",
+  initialEmail = "",
+  lockEmail = false,
   onGoogleSignIn,
   onEmailSignIn,
   onSignup,
@@ -13,7 +15,9 @@ export default function LoginPage({
   onConfirmReset,
 }) {
   const [mode, setMode] = useState(() => (MODES.has(initialMode) ? initialMode : "signin"));
-  const [email, setEmail] = useState("");
+  const normalizedInitialEmail = (initialEmail || "").trim().toLowerCase();
+  const [email, setEmail] = useState(normalizedInitialEmail);
+  const [emailLocked, setEmailLocked] = useState(Boolean(lockEmail && normalizedInitialEmail));
   const [password, setPassword] = useState("");
   const [fullName, setFullName] = useState("");
   const [confirm, setConfirm] = useState("");
@@ -61,6 +65,12 @@ export default function LoginPage({
   const [noticeType, setNoticeType] = useState("info");
 
   const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+  useEffect(() => {
+    const normalized = (initialEmail || "").trim().toLowerCase();
+    setEmail(normalized);
+    setEmailLocked(Boolean(lockEmail && normalized));
+  }, [initialEmail, lockEmail]);
 
   const switchMode = (next) => {
     setMode(next);
@@ -222,15 +232,29 @@ export default function LoginPage({
             )}
 
             {(mode === "signin" || mode === "signup" || mode === "forgot") && (
-              <input
-                type="email"
-                className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-slate-800 placeholder-slate-400 outline-none ring-indigo-200 transition focus:border-indigo-400 focus:ring"
-                placeholder="Email address"
-                autoComplete="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
-              />
+              <>
+                <input
+                  type="email"
+                  className={`w-full rounded-lg border border-slate-200 px-3 py-2.5 text-slate-800 placeholder-slate-400 outline-none ring-indigo-200 transition focus:border-indigo-400 focus:ring ${
+                    emailLocked ? "bg-slate-100 cursor-not-allowed" : "bg-white"
+                  }`}
+                  placeholder="Email address"
+                  autoComplete="email"
+                  value={email}
+                  readOnly={emailLocked}
+                  aria-readonly={emailLocked}
+                  onChange={(e) => {
+                    if (emailLocked) return;
+                    setEmail(e.target.value);
+                  }}
+                  required
+                />
+                {emailLocked && (mode === "signup" || mode === "signin") ? (
+                  <p className="text-xs text-indigo-600">
+                    You&apos;re joining as <span className="font-medium">{email}</span>. Ask the host for a new invite if this isn&apos;t you.
+                  </p>
+                ) : null}
+              </>
             )}
 
             {(mode === "signin" || mode === "signup") && (

@@ -1363,12 +1363,17 @@ export default function App() {
 
   const queryParams = useQueryParams();
   const initialResetToken = queryParams.resetToken || "";
+  const initialInviteEmail =
+    typeof queryParams.email === "string" && queryParams.email
+      ? queryParams.email.trim().toLowerCase()
+      : "";
   const allowedLoginModes = useMemo(() => new Set(["signin", "signup", "forgot", "reset"]), []);
   const initialLoginMode = initialResetToken
     ? "reset"
     : allowedLoginModes.has(queryParams.mode)
     ? queryParams.mode
     : undefined;
+  const lockLoginEmail = Boolean(initialInviteEmail);
 
   const panelStorageKey = sessionDoc?.sid ? `${PANEL_STORAGE_PREFIX}${sessionDoc.sid}` : null;
 
@@ -1563,6 +1568,9 @@ export default function App() {
           const url = new URL(window.location.href);
           url.searchParams.delete("sid");
           url.searchParams.delete("token");
+          url.searchParams.delete("mode");
+          url.searchParams.delete("email");
+          url.searchParams.delete("participant");
           window.history.replaceState({}, "", url.toString());
         }
       } catch (err) {
@@ -2226,6 +2234,8 @@ export default function App() {
             <LoginPage
               initialMode={initialLoginMode}
               initialResetToken={initialResetToken}
+              initialEmail={initialInviteEmail}
+              lockEmail={lockLoginEmail}
               onGoogleSignIn={handleSignInGoogle}
               onEmailSignIn={handleSignInEmail}
               onSignup={({ email, password, fullName }) => handleSignUp(email, password, fullName)}
