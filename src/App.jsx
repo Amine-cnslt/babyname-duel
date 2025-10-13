@@ -809,15 +809,17 @@ const ParticipantsPanel = ({
                 <div className="text-xs text-slate-500">List status: {session?.listStates?.[uid]?.status || "draft"}</div>
               </div>
               <div className="flex items-center gap-2">
-                <Button
-                  variant="subtle"
-                  className="text-xs"
-                  onClick={() => onMessage(uid)}
-                  disabled={directMessageBusy}
-                  title="Send a private message"
-                >
-                  <MessageCircle className="h-4 w-4" />
-                </Button>
+                {uid !== currentUser?.email ? (
+                  <Button
+                    variant="subtle"
+                    className="text-xs"
+                    onClick={() => onMessage(uid)}
+                    disabled={directMessageBusy}
+                    title="Send a private message"
+                  >
+                    <MessageCircle className="h-4 w-4" />
+                  </Button>
+                ) : null}
                 {isOwner ? (
                   <Button
                     variant="danger"
