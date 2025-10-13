@@ -46,15 +46,15 @@ const Card = ({ children, className = "" }) => (
   <div className={`bnd-card-pop rounded-2xl bg-white/95 shadow-md border border-slate-200/80 backdrop-blur-sm ${className}`}>{children}</div>
 );
 
-const SectionToggleButton = ({ open, onToggle }) => (
+const SectionToggleButton = ({ expanded, onToggle }) => (
   <button
     type="button"
     onClick={onToggle}
     className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-500 transition hover:bg-slate-50"
-    aria-label={open ? "Collapse section" : "Expand section"}
-    title={open ? "Collapse section" : "Expand section"}
+    aria-label={expanded ? "Collapse section" : "Expand section"}
+    title={expanded ? "Collapse section" : "Expand section"}
   >
-    {open ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+    {expanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
   </button>
 );
 
@@ -643,7 +643,7 @@ const ParticipantsPanel = ({
   onMessage,
   directMessageBusy,
   currentUser,
-  collapsed,
+  expanded,
   onToggle,
 }) => {
   const [email, setEmail] = useState("");
@@ -668,11 +668,11 @@ const ParticipantsPanel = ({
               {session?.invitesLocked ? "Invites locked" : "Lock invites"}
             </Button>
           ) : null}
-          <SectionToggleButton open={!collapsed} onToggle={onToggle} />
+          <SectionToggleButton expanded={expanded} onToggle={onToggle} />
         </div>
       </div>
 
-      {!collapsed && isOwner ? (
+      {expanded && isOwner ? (
         <form
           onSubmit={async (event) => {
             event.preventDefault();
@@ -696,7 +696,7 @@ const ParticipantsPanel = ({
         </form>
       ) : null}
 
-      {!collapsed ? (
+      {expanded ? (
         <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
           {(session?.ownerIds || []).map((uid) => (
             <div key={uid} className="flex items-center justify-between rounded-lg border border-slate-200 px-3 py-2 text-sm">
@@ -754,7 +754,7 @@ const ListEditor = ({
   onSubmit,
   canEdit,
   busy,
-  collapsed,
+  expanded,
   onToggle,
 }) => {
   const names = listState.names;
@@ -785,76 +785,78 @@ const ListEditor = ({
           >
             {listState.status === "submitted" ? "Submitted" : "Draft"}
           </span>
-          <SectionToggleButton open={!collapsed} onToggle={onToggle} />
+          <SectionToggleButton expanded={expanded} onToggle={onToggle} />
         </div>
       </div>
 
-      {collapsed ? null : canEdit ? (
-        <>
-          <div className="grid gap-2">
-            {names.map((value, index) => (
-              <div key={index} className="grid grid-cols-[minmax(0,1fr)_120px] gap-2">
-                <input
-                  className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                  placeholder={`Name ${index + 1}`}
-                  value={value}
-                  onChange={(e) => {
-                    if (!canEdit || busy) return;
-                    onChangeName(index, e.target.value);
-                  }}
-                  disabled={!canEdit || busy}
-                />
-                <select
-                  className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                  value={ranks[index] ?? ""}
-                  onChange={(e) => {
-                    if (!canEdit || busy) return;
-                    onChangeRank(index, Number(e.target.value));
-                  }}
-                  disabled={!canEdit || busy}
-                >
-                  <option value="">Rank</option>
-                  <option value={0}>0</option>
-                  {Array.from({ length: requiredNames }, (_, i) => i + 1).map((rank) => (
-                    <option key={rank} value={rank}>
-                      {rank}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            ))}
-          </div>
+      {expanded ? (
+        canEdit ? (
+          <>
+            <div className="grid gap-2">
+              {names.map((value, index) => (
+                <div key={index} className="grid grid-cols-[minmax(0,1fr)_120px] gap-2">
+                  <input
+                    className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                    placeholder={`Name ${index + 1}`}
+                    value={value}
+                    onChange={(e) => {
+                      if (!canEdit || busy) return;
+                      onChangeName(index, e.target.value);
+                    }}
+                    disabled={!canEdit || busy}
+                  />
+                  <select
+                    className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                    value={ranks[index] ?? ""}
+                    onChange={(e) => {
+                      if (!canEdit || busy) return;
+                      onChangeRank(index, Number(e.target.value));
+                    }}
+                    disabled={!canEdit || busy}
+                  >
+                    <option value="">Rank</option>
+                    <option value={0}>0</option>
+                    {Array.from({ length: requiredNames }, (_, i) => i + 1).map((rank) => (
+                      <option key={rank} value={rank}>
+                        {rank}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ))}
+            </div>
 
-          <div className="flex justify-end gap-2">
-            <Button onClick={onSave} disabled={!canEdit || busy}>
-              {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-              Save draft
-            </Button>
-            <Button variant="primary" onClick={onSubmit} disabled={!canEdit || busy}>
-              Submit for voting
-            </Button>
-          </div>
-        </>
-      ) : (
-        <div className="space-y-3">
-          <div className="rounded-lg border border-emerald-100 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
-            Your list has been submitted and is now read-only.
-          </div>
-          <div className="grid gap-2">
-            {entries.map(({ name, rank, index }) => (
-              <div key={index} className="grid grid-cols-[minmax(0,1fr)_100px] gap-2 text-sm">
-                <div className="flex items-center gap-2">
-                  <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-slate-700">{name}</div>
-                  <FactButton fact={facts[name]} />
+            <div className="flex justify-end gap-2">
+              <Button onClick={onSave} disabled={!canEdit || busy}>
+                {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                Save draft
+              </Button>
+              <Button variant="primary" onClick={onSubmit} disabled={!canEdit || busy}>
+                Submit for voting
+              </Button>
+            </div>
+          </>
+        ) : (
+          <div className="space-y-3">
+            <div className="rounded-lg border border-emerald-100 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
+              Your list has been submitted and is now read-only.
+            </div>
+            <div className="grid gap-2">
+              {entries.map(({ name, rank, index }) => (
+                <div key={index} className="grid grid-cols-[minmax(0,1fr)_100px] gap-2 text-sm">
+                  <div className="flex items-center gap-2">
+                    <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-slate-700">{name}</div>
+                    <FactButton fact={facts[name]} />
+                  </div>
+                  <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-slate-600">
+                    Rank {rank || "-"}
+                  </div>
                 </div>
-                <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-slate-600">
-                  Rank {rank || "-"}
-                </div>
-              </div>
-            ))}
+              ))}
+            </div>
           </div>
-        </div>
-      )}
+        ))
+      : null}
     </Card>
   );
 };
@@ -870,7 +872,7 @@ const ScoringPanel = ({
   onSaveDraft,
   onSubmitScores,
   submitting,
-  collapsed,
+  expanded,
   onToggle,
 }) => {
   const myUid = currentUser?.email;
@@ -894,10 +896,10 @@ const ScoringPanel = ({
           </div>
           <div className="text-xs text-indigo-600">Focus: {NAME_FOCUS_LABELS[nameFocus] || NAME_FOCUS_LABELS.mix}</div>
         </div>
-        <SectionToggleButton open={!collapsed} onToggle={onToggle} />
+        <SectionToggleButton expanded={expanded} onToggle={onToggle} />
       </div>
 
-      {!collapsed ? (
+      {expanded ? (
         otherLists.length ? (
           <div className="space-y-4">
             {otherLists.map((entry) => {
@@ -1001,7 +1003,7 @@ const ScoringPanel = ({
   );
 };
 
-const ResultsPanel = ({ lists, scores, requiredNames, invitesLocked, onTopTieChange, collapsed, onToggle }) => {
+const ResultsPanel = ({ lists, scores, requiredNames, invitesLocked, onTopTieChange, expanded, onToggle }) => {
   const aggregated = useMemo(() => {
     if (!invitesLocked || !lists) {
       return { ranking: [], topNames: [] };
@@ -1062,28 +1064,16 @@ const ResultsPanel = ({ lists, scores, requiredNames, invitesLocked, onTopTieCha
     onTopTieChange?.(topTie);
   }, [onTopTieChange, topTie]);
 
-  return (
-    <Card className="p-5 space-y-3">
-      <div className="flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2 text-base font-semibold text-slate-800">
-          <span role="img" aria-hidden="true">🎉</span>
-          Results
-        </div>
-        <div className="flex items-center gap-2">
-          <div className="text-xs text-slate-500">
-            {invitesLocked
-              ? "Scores reveal once everyone finishes. Lower scores are better."
-              : "Scores remain hidden until invites are locked."}
-          </div>
-          <SectionToggleButton open={!collapsed} onToggle={onToggle} />
-        </div>
-      </div>
-
-      {collapsed ? null : !invitesLocked ? (
+  let bodyContent = null;
+  if (expanded) {
+    if (!invitesLocked) {
+      bodyContent = (
         <div className="rounded-lg border border-dashed border-slate-200 px-3 py-4 text-sm text-slate-500">
           Waiting for the owner to lock invites before revealing totals.
         </div>
-      ) : aggregated.ranking.length ? (
+      );
+    } else if (aggregated.ranking.length) {
+      bodyContent = (
         <div className="space-y-3">
           <div
             className={`rounded-lg border px-3 py-3 text-sm ${
@@ -1091,13 +1081,9 @@ const ResultsPanel = ({ lists, scores, requiredNames, invitesLocked, onTopTieCha
             }`}
           >
             {topTie ? (
-              <>
-                Tie detected for first place between {winnerNames.join(", ")}. Plan a tie-break vote focused on these names.
-              </>
+              <>Tie detected for first place between {winnerNames.join(", ")}. Plan a tie-break vote focused on these names.</>
             ) : (
-              <>
-                Current winner: <strong>{winnerNames[0]}</strong> with a total score of {winnerTotal}.
-              </>
+              <>Current winner: <strong>{winnerNames[0]}</strong> with a total score of {winnerTotal}.</>
             )}
           </div>
 
@@ -1110,9 +1096,7 @@ const ResultsPanel = ({ lists, scores, requiredNames, invitesLocked, onTopTieCha
                     <span>#{index + 1} · {row.name}</span>
                     <FactButton fact={fact} />
                   </div>
-                  <div className="text-sm text-slate-500">
-                    Total: {row.total} · Average: {row.average.toFixed(2)}
-                  </div>
+                  <div className="text-sm text-slate-500">Total: {row.total} · Average: {row.average.toFixed(2)}</div>
                 </div>
                 <div className="mt-1 grid gap-1 text-xs text-slate-500">
                   {Object.entries(row.owners).map(([ownerUid, score]) => (
@@ -1126,16 +1110,39 @@ const ResultsPanel = ({ lists, scores, requiredNames, invitesLocked, onTopTieCha
             );
           })}
         </div>
-      ) : (
+      );
+    } else {
+      bodyContent = (
         <div className="rounded-lg border border-dashed border-slate-200 px-3 py-4 text-sm text-slate-500">
           No scores yet.
         </div>
-      )}
+      );
+    }
+  }
+
+  return (
+    <Card className="p-5 space-y-3">
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2 text-base font-semibold text-slate-800">
+          <span role="img" aria-hidden="true">🎉</span>
+          Results
+        </div>
+        <div className="flex items-center gap-2">
+          <div className="text-xs text-slate-500">
+            {invitesLocked
+              ? "Scores reveal once everyone finishes. Lower scores are better."
+              : "Scores remain hidden until invites are locked."}
+          </div>
+          <SectionToggleButton expanded={expanded} onToggle={onToggle} />
+        </div>
+      </div>
+
+      {bodyContent}
     </Card>
   );
 };
 
-const MessagesPanel = ({ messages, onSend, busy, participants, currentUser, collapsed, onToggle }) => {
+const MessagesPanel = ({ messages, onSend, busy, participants, currentUser, expanded, onToggle }) => {
   const [body, setBody] = useState("");
   const [recipient, setRecipient] = useState("all");
 
@@ -1153,10 +1160,10 @@ const MessagesPanel = ({ messages, onSend, busy, participants, currentUser, coll
           <span role="img" aria-hidden="true">💬</span>
           Messages
         </div>
-        <SectionToggleButton open={!collapsed} onToggle={onToggle} />
+        <SectionToggleButton expanded={expanded} onToggle={onToggle} />
       </div>
 
-      {!collapsed ? (
+      {expanded ? (
         <>
           <div className="max-h-60 overflow-y-auto space-y-2 pr-1">
             {messages.length ? (
@@ -1247,7 +1254,7 @@ export default function App() {
   const [pendingJoin, setPendingJoin] = useState(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [ambientEnabled, setAmbientEnabled] = useState(false);
-  const [panelOpen, setPanelOpen] = useState({
+  const [panelExpanded, setPanelExpanded] = useState({
     participants: false,
     list: false,
     scoring: false,
@@ -1576,7 +1583,7 @@ export default function App() {
   }, [user, activeSid]);
 
   useEffect(() => {
-    setPanelOpen({
+    setPanelExpanded({
       participants: false,
       list: false,
       scoring: false,
@@ -1623,7 +1630,7 @@ export default function App() {
   };
 
   const togglePanel = (key) => {
-    setPanelOpen((prev) => ({
+    setPanelExpanded((prev) => ({
       ...prev,
       [key]: !prev[key],
     }));
@@ -2127,7 +2134,7 @@ export default function App() {
               onMessage={handleDirectMessage}
               directMessageBusy={directMessageBusy}
               currentUser={user}
-              collapsed={!panelOpen.participants}
+              expanded={panelExpanded.participants}
               onToggle={() => togglePanel("participants")}
             />
 
@@ -2153,7 +2160,7 @@ export default function App() {
               onSubmit={() => handleSaveList(true)}
               canEdit={listDraft.status !== "submitted"}
               busy={sessionBusy}
-              collapsed={!panelOpen.list}
+              expanded={panelExpanded.list}
               onToggle={() => togglePanel("list")}
             />
 
@@ -2168,7 +2175,7 @@ export default function App() {
               onSaveDraft={handleSaveScoreDraft}
               onSubmitScores={handleSubmitScores}
               submitting={scoreSubmitting}
-              collapsed={!panelOpen.scoring}
+              expanded={panelExpanded.scoring}
               onToggle={() => togglePanel("scoring")}
             />
 
@@ -2182,7 +2189,7 @@ export default function App() {
                   playToken("alert");
                 }
               }}
-              collapsed={!panelOpen.results}
+              expanded={panelExpanded.results}
               onToggle={() => togglePanel("results")}
             />
 
@@ -2194,7 +2201,7 @@ export default function App() {
                 (uid) => uid !== user?.email,
               )}
               currentUser={user}
-              collapsed={!panelOpen.messages}
+              expanded={panelExpanded.messages}
               onToggle={() => togglePanel("messages")}
             />
           </div>
