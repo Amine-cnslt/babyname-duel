@@ -3,7 +3,6 @@ import {
   ArrowLeft,
   Bell,
   ChevronDown,
-  ChevronRight,
   Info,
   Music,
   VolumeX,
@@ -46,17 +45,44 @@ const Card = ({ children, className = "" }) => (
   <div className={`bnd-card-pop rounded-2xl bg-white/95 shadow-md border border-slate-200/80 backdrop-blur-sm ${className}`}>{children}</div>
 );
 
-const SectionToggleButton = ({ expanded, onToggle }) => (
-  <button
-    type="button"
-    onClick={onToggle}
-    className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-500 transition hover:bg-slate-50"
-    aria-label={expanded ? "Collapse section" : "Expand section"}
-    title={expanded ? "Collapse section" : "Expand section"}
-  >
-    {expanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
-  </button>
-);
+const SectionCollapse = ({
+  title,
+  icon,
+  expanded,
+  onToggle,
+  actions = null,
+  children,
+}) => {
+  const contentId = React.useId();
+  return (
+    <Card className="p-5 space-y-4" aria-labelledby={`${contentId}-label`}>
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2 text-base font-semibold text-slate-800" id={`${contentId}-label`}>
+          {icon}
+          <span>{title}</span>
+        </div>
+        <div className="flex items-center gap-2">
+          {actions}
+          <button
+            type="button"
+            onClick={onToggle}
+            className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-500 transition hover:bg-slate-50"
+            aria-expanded={expanded}
+            aria-controls={contentId}
+            aria-label={expanded ? `Collapse ${title}` : `Expand ${title}`}
+          >
+            <ChevronDown className={`h-4 w-4 transition-transform duration-200 ${expanded ? "rotate-180" : ""}`} />
+          </button>
+        </div>
+      </div>
+      {expanded ? (
+        <div id={contentId} role="region" aria-labelledby={`${contentId}-label`} className="space-y-4">
+          {children}
+        </div>
+      ) : null}
+    </Card>
+  );
+};
 
 const FloatingDecor = React.memo(() => (
   <div className="bnd-floating">
@@ -222,6 +248,18 @@ const NAME_FOCUS_LABELS = {
   boy: "Boys",
   mix: "Mix of both",
 };
+
+const PANEL_KEYS = ["participants", "list", "otherLists", "results", "messages"];
+
+const buildPanelState = (overrides = {}) => {
+  const state = {};
+  PANEL_KEYS.forEach((key) => {
+    state[key] = Boolean(overrides[key]);
+  });
+  return state;
+};
+
+const PANEL_STORAGE_PREFIX = "bnd_panel_state_";
 
 const buildRequiredNameOptions = (focus) => {
   const options = [];
@@ -650,53 +688,51 @@ const ParticipantsPanel = ({
   const participants = session?.participantIds || session?.voterIds || [];
   const focusLabel = NAME_FOCUS_LABELS[session?.nameFocus] || NAME_FOCUS_LABELS.mix;
 
+  const headerAction = isOwner ? (
+    <Button onClick={onLockInvites} disabled={lockBusy || session?.invitesLocked}>
+      {lockBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Lock className="h-4 w-4" />}
+      {session?.invitesLocked ? "Invites locked" : "Lock invites"}
+    </Button>
+  ) : null;
+
   return (
-    <Card className="p-5 space-y-4">
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <div className="flex items-center gap-2 text-base font-semibold text-slate-800">
-            <span role="img" aria-hidden="true">🤝</span>
-            Participants
-          </div>
-          <div className="text-xs text-slate-500">Owner can invite or remove participants. Existing users join automatically.</div>
-          <div className="text-xs text-indigo-600">Name theme: {focusLabel}</div>
+    <SectionCollapse
+      title="Participants"
+      icon={<span role="img" aria-hidden="true">🤝</span>}
+      expanded={expanded}
+      onToggle={onToggle}
+      actions={headerAction}
+    >
+      <div className="space-y-3">
+        <div className="space-y-1 text-xs">
+          <p className="text-slate-500">Owner can invite or remove participants. Existing users join automatically.</p>
+          <p className="text-indigo-600">Name theme: {focusLabel}</p>
         </div>
-        <div className="flex items-center gap-2">
-          {isOwner ? (
-            <Button onClick={onLockInvites} disabled={lockBusy || session?.invitesLocked}>
-              {lockBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Lock className="h-4 w-4" />}
-              {session?.invitesLocked ? "Invites locked" : "Lock invites"}
+
+        {isOwner ? (
+          <form
+            onSubmit={async (event) => {
+              event.preventDefault();
+              if (!email.trim()) return;
+              await onInvite(email.trim());
+              setEmail("");
+            }}
+            className="flex gap-2"
+          >
+            <input
+              className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm"
+              placeholder="Invite by email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              disabled={inviteBusy}
+            />
+            <Button type="submit" variant="primary" disabled={inviteBusy}>
+              {inviteBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserPlus className="h-4 w-4" />}
+              Invite
             </Button>
-          ) : null}
-          <SectionToggleButton expanded={expanded} onToggle={onToggle} />
-        </div>
-      </div>
+          </form>
+        ) : null}
 
-      {expanded && isOwner ? (
-        <form
-          onSubmit={async (event) => {
-            event.preventDefault();
-            if (!email.trim()) return;
-            await onInvite(email.trim());
-            setEmail("");
-          }}
-          className="flex gap-2"
-        >
-          <input
-            className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm"
-            placeholder="Invite by email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            disabled={inviteBusy}
-          />
-          <Button type="submit" variant="primary" disabled={inviteBusy}>
-            {inviteBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserPlus className="h-4 w-4" />}
-            Invite
-          </Button>
-        </form>
-      ) : null}
-
-      {expanded ? (
         <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
           {(session?.ownerIds || []).map((uid) => (
             <div key={uid} className="flex items-center justify-between rounded-lg border border-slate-200 px-3 py-2 text-sm">
@@ -739,8 +775,8 @@ const ParticipantsPanel = ({
             </div>
           ) : null}
         </div>
-      ) : null}
-    </Card>
+      </div>
+    </SectionCollapse>
   );
 };
 
@@ -764,33 +800,33 @@ const ListEditor = ({
     .map((value, index) => ({ name: value, rank: ranks[index] ?? "", index }))
     .filter((item) => (canEdit ? true : Boolean(item.name && item.name.trim())));
 
-  return (
-    <Card className="p-5 space-y-4">
-      <div className="flex items-center justify-between">
-        <div>
-          <div className="flex items-center gap-2 text-base font-semibold text-slate-800">
-            <span role="img" aria-hidden="true">🧸</span>
-            Your list
-          </div>
-          <div className="text-xs text-slate-500">
-            Provide exactly {requiredNames} distinct names. Assign each a ranking from 1 to {requiredNames} with no duplicates. Drafts allow blanks or rank 0.
-          </div>
-          <div className="text-xs text-indigo-600">Focus: {NAME_FOCUS_LABELS[nameFocus] || NAME_FOCUS_LABELS.mix}</div>
-        </div>
-        <div className="flex items-center gap-2">
-          <span
-            className={`rounded-full px-3 py-1 text-xs font-semibold ${
-              listState.status === "submitted" ? "bg-emerald-50 text-emerald-600" : "bg-slate-100 text-slate-600"
-            }`}
-          >
-            {listState.status === "submitted" ? "Submitted" : "Draft"}
-          </span>
-          <SectionToggleButton expanded={expanded} onToggle={onToggle} />
-        </div>
-      </div>
+  const statusChip = (
+    <span
+      className={`rounded-full px-3 py-1 text-xs font-semibold ${
+        listState.status === "submitted" ? "bg-emerald-50 text-emerald-600" : "bg-slate-100 text-slate-600"
+      }`}
+    >
+      {listState.status === "submitted" ? "Submitted" : "Draft"}
+    </span>
+  );
 
-      {expanded ? (
-        canEdit ? (
+  return (
+    <SectionCollapse
+      title="Your list"
+      icon={<span role="img" aria-hidden="true">🧸</span>}
+      expanded={expanded}
+      onToggle={onToggle}
+      actions={statusChip}
+    >
+      <div className="space-y-3">
+        <div className="space-y-1 text-xs">
+          <p className="text-slate-500">
+            Provide exactly {requiredNames} distinct names. Assign each a ranking from 1 to {requiredNames} with no duplicates. Drafts allow blanks or rank 0.
+          </p>
+          <p className="text-indigo-600">Focus: {NAME_FOCUS_LABELS[nameFocus] || NAME_FOCUS_LABELS.mix}</p>
+        </div>
+
+        {canEdit ? (
           <>
             <div className="grid gap-2">
               {names.map((value, index) => (
@@ -855,13 +891,13 @@ const ListEditor = ({
               ))}
             </div>
           </div>
-        ))
-      : null}
-    </Card>
+        )}
+      </div>
+    </SectionCollapse>
   );
 };
 
-const ScoringPanel = ({
+const OtherListsPanel = ({
   lists,
   scores,
   currentUser,
@@ -884,122 +920,116 @@ const ScoringPanel = ({
   }, [lists, myUid]);
 
   return (
-    <Card className="p-5 space-y-4">
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <div className="flex items-center gap-2 text-base font-semibold text-slate-800">
-            <span role="img" aria-hidden="true">✨</span>
-            Score other lists
-          </div>
-          <div className="text-xs text-slate-500">
-            Assign each submitted list a full set of ranks from 1 to {requiredNames}.
-          </div>
-          <div className="text-xs text-indigo-600">Focus: {NAME_FOCUS_LABELS[nameFocus] || NAME_FOCUS_LABELS.mix}</div>
-        </div>
-        <SectionToggleButton expanded={expanded} onToggle={onToggle} />
+    <SectionCollapse
+      title="Other participants’ lists"
+      icon={<span role="img" aria-hidden="true">✨</span>}
+      expanded={expanded}
+      onToggle={onToggle}
+    >
+      <div className="space-y-1 text-xs">
+        <p className="text-slate-500">Assign each submitted list a full set of ranks from 1 to {requiredNames}. Use every rank exactly once.</p>
+        <p className="text-indigo-600">Focus: {NAME_FOCUS_LABELS[nameFocus] || NAME_FOCUS_LABELS.mix}</p>
       </div>
 
-      {expanded ? (
-        otherLists.length ? (
-          <div className="space-y-4">
-            {otherLists.map((entry) => {
-              const isComplete = !!completedScores?.[entry.ownerUid];
-              const factsByOwner = entry.facts || {};
-              return (
-                <div key={entry.ownerUid} className="space-y-3 rounded-xl border border-slate-200 bg-white/60 px-4 py-4">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <div className="text-sm font-semibold text-slate-800">{entry.ownerUid}</div>
-                      <div className="text-xs text-slate-500">Use every rank exactly once.</div>
-                    </div>
-                    {isComplete ? (
-                      <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-600">
-                        Submitted
-                      </span>
-                    ) : null}
+      {otherLists.length ? (
+        <div className="space-y-4">
+          {otherLists.map((entry) => {
+            const isComplete = !!completedScores?.[entry.ownerUid];
+            const factsByOwner = entry.facts || {};
+            return (
+              <div key={entry.ownerUid} className="space-y-3 rounded-xl border border-slate-200 bg-white/60 px-4 py-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <div className="text-sm font-semibold text-slate-800">{entry.ownerUid}</div>
+                    <div className="text-xs text-slate-500">Use every rank exactly once.</div>
                   </div>
-                  <div className="grid gap-2">
-                    {entry.names.map((name) => {
-                      const scoreRow = scores[entry.ownerUid]?.[name];
-                      if (isComplete) {
-                        return (
-                          <div key={name} className="grid grid-cols-[minmax(0,1fr)_160px] gap-2 text-sm">
-                            <div className="flex items-center gap-2">
-                              <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-slate-700">{name}</div>
-                              <FactButton fact={factsByOwner[name]} />
-                            </div>
-                            <div className="rounded-lg border border-slate-200 bg-emerald-50 px-3 py-2 text-emerald-700">
-                              Rank {scoreRow?.value || "-"}
-                            </div>
-                          </div>
-                        );
-                      }
+                  {isComplete ? (
+                    <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-600">
+                      Submitted
+                    </span>
+                  ) : null}
+                </div>
+                <div className="grid gap-2">
+                  {entry.names.map((name) => {
+                    const scoreRow = scores[entry.ownerUid]?.[name];
+                    if (isComplete) {
                       return (
                         <div key={name} className="grid grid-cols-[minmax(0,1fr)_160px] gap-2 text-sm">
                           <div className="flex items-center gap-2">
-                            <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-slate-700">{name}</div>
+                            <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-slate-700">{name}</div>
                             <FactButton fact={factsByOwner[name]} />
                           </div>
-                          <div className="flex items-center gap-2">
-                            <select
-                              className="flex-1 rounded-lg border border-slate-300 px-3 py-2"
-                              value={scoreRow?.value ?? ""}
-                              onChange={(e) => scoreRow?.set(e.target.value)}
-                              disabled={submitting === entry.ownerUid}
-                            >
-                              <option value="">Rank</option>
-                              {Array.from({ length: requiredNames }, (_, i) => i + 1).map((rank) => (
-                                <option key={rank} value={rank}>
-                                  {rank}
-                                </option>
-                              ))}
-                            </select>
+                          <div className="rounded-lg border border-slate-200 bg-emerald-50 px-3 py-2 text-emerald-700">
+                            Rank {scoreRow?.value || "-"}
                           </div>
                         </div>
                       );
-                    })}
-                  </div>
-                  {isComplete ? (
-                    <div className="rounded-lg border border-emerald-100 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
-                      Thanks! Your scores are locked in.
-                    </div>
-                  ) : (
-                    <div className="flex justify-end gap-2">
-                      <Button
-                        variant="secondary"
-                        onClick={() => onSaveDraft(entry.ownerUid)}
-                        disabled={
-                          submitting === entry.ownerUid ||
-                          !(draftState?.[entry.ownerUid] && Object.keys(draftState[entry.ownerUid]).length)
-                        }
-                      >
-                        Save draft
-                      </Button>
-                      <Button
-                        variant="primary"
-                        onClick={() => onSubmitScores(entry.ownerUid)}
-                        disabled={submitting === entry.ownerUid}
-                      >
-                        {submitting === entry.ownerUid ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                        ) : (
-                          <Send className="h-4 w-4" />
-                        )}
-                        Submit scores
-                      </Button>
-                    </div>
-                  )}
+                    }
+                    return (
+                      <div key={name} className="grid grid-cols-[minmax(0,1fr)_160px] gap-2 text-sm">
+                        <div className="flex items-center gap-2">
+                          <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-slate-700">{name}</div>
+                          <FactButton fact={factsByOwner[name]} />
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <select
+                            className="flex-1 rounded-lg border border-slate-300 px-3 py-2"
+                            value={scoreRow?.value ?? ""}
+                            onChange={(e) => scoreRow?.set(e.target.value)}
+                            disabled={submitting === entry.ownerUid}
+                          >
+                            <option value="">Rank</option>
+                            {Array.from({ length: requiredNames }, (_, i) => i + 1).map((rank) => (
+                              <option key={rank} value={rank}>
+                                {rank}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
-              );
-            })}
-          </div>
-        ) : (
-          <div className="rounded-lg border border-dashed border-slate-200 px-3 py-4 text-sm text-slate-500">
-            No submitted lists from other participants yet.
-          </div>
-        )
-      ) : null}
-    </Card>
+                {isComplete ? (
+                  <div className="rounded-lg border border-emerald-100 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
+                    Thanks! Your scores are locked in.
+                  </div>
+                ) : (
+                  <div className="flex justify-end gap-2">
+                    <Button
+                      variant="secondary"
+                      onClick={() => onSaveDraft(entry.ownerUid)}
+                      disabled={
+                        submitting === entry.ownerUid ||
+                        !(draftState?.[entry.ownerUid] && Object.keys(draftState[entry.ownerUid]).length)
+                      }
+                    >
+                      Save draft
+                    </Button>
+                    <Button
+                      variant="primary"
+                      onClick={() => onSubmitScores(entry.ownerUid)}
+                      disabled={submitting === entry.ownerUid}
+                    >
+                      {submitting === entry.ownerUid ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Send className="h-4 w-4" />
+                      )}
+                      Submit scores
+                    </Button>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        <div className="rounded-lg border border-dashed border-slate-200 px-3 py-4 text-sm text-slate-500">
+          No submissions yet.
+        </div>
+      )}
+    </SectionCollapse>
   );
 };
 
@@ -1120,25 +1150,20 @@ const ResultsPanel = ({ lists, scores, requiredNames, invitesLocked, onTopTieCha
     }
   }
 
-  return (
-    <Card className="p-5 space-y-3">
-      <div className="flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2 text-base font-semibold text-slate-800">
-          <span role="img" aria-hidden="true">🎉</span>
-          Results
-        </div>
-        <div className="flex items-center gap-2">
-          <div className="text-xs text-slate-500">
-            {invitesLocked
-              ? "Scores reveal once everyone finishes. Lower scores are better."
-              : "Scores remain hidden until invites are locked."}
-          </div>
-          <SectionToggleButton expanded={expanded} onToggle={onToggle} />
-        </div>
-      </div>
+  const statusCopy = invitesLocked
+    ? "Scores reveal once everyone finishes. Lower scores are better."
+    : "Scores remain hidden until invites are locked.";
 
+  return (
+    <SectionCollapse
+      title="Results"
+      icon={<span role="img" aria-hidden="true">🎉</span>}
+      expanded={expanded}
+      onToggle={onToggle}
+    >
+      <div className="text-xs text-slate-500">{statusCopy}</div>
       {bodyContent}
-    </Card>
+    </SectionCollapse>
   );
 };
 
@@ -1154,74 +1179,67 @@ const MessagesPanel = ({ messages, onSend, busy, participants, currentUser, expa
   };
 
   return (
-    <Card className="p-5 space-y-4">
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2 text-base font-semibold text-slate-800">
-          <span role="img" aria-hidden="true">💬</span>
-          Messages
-        </div>
-        <SectionToggleButton expanded={expanded} onToggle={onToggle} />
-      </div>
-
-      {expanded ? (
-        <>
-          <div className="max-h-60 overflow-y-auto space-y-2 pr-1">
-            {messages.length ? (
-              messages.map((message) => (
-                <div key={message.id} className="rounded-lg border border-slate-200 px-3 py-2 text-sm">
-                  <div className="flex items-center justify-between text-xs text-slate-500">
-                    <span>
-                      {message.sender === currentUser?.email ? "You" : message.sender}
-                      {message.recipient ? (
-                        <>
-                          {" → "}
-                          {message.recipient === currentUser?.email ? "You" : message.recipient}
-                        </>
-                      ) : " → All"}
-                    </span>
-                    <span>{formatDate(message.createdAt)}</span>
-                  </div>
-                  <div className="mt-1 text-slate-700">{message.body}</div>
-                </div>
-              ))
-            ) : (
-              <div className="rounded-lg border border-dashed border-slate-200 px-3 py-4 text-sm text-slate-500">
-                No messages yet.
+    <SectionCollapse
+      title="Messages"
+      icon={<span role="img" aria-hidden="true">💬</span>}
+      expanded={expanded}
+      onToggle={onToggle}
+    >
+      <div className="max-h-60 overflow-y-auto space-y-2 pr-1">
+        {messages.length ? (
+          messages.map((message) => (
+            <div key={message.id} className="rounded-lg border border-slate-200 px-3 py-2 text-sm">
+              <div className="flex items-center justify-between text-xs text-slate-500">
+                <span>
+                  {message.sender === currentUser?.email ? "You" : message.sender}
+                  {message.recipient ? (
+                    <>
+                      {" → "}
+                      {message.recipient === currentUser?.email ? "You" : message.recipient}
+                    </>
+                  ) : " → All"}
+                </span>
+                <span>{formatDate(message.createdAt)}</span>
               </div>
-            )}
-          </div>
-          <form onSubmit={handleSubmit} className="space-y-2">
-            <textarea
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-              rows={3}
-              placeholder="Write a note or reminder"
-              value={body}
-              onChange={(e) => setBody(e.target.value)}
-              disabled={busy}
-            />
-            <div className="flex items-center justify-between">
-              <select
-                className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                value={recipient}
-                onChange={(e) => setRecipient(e.target.value)}
-                disabled={busy}
-              >
-                <option value="all">All participants</option>
-                {participants.map((uid) => (
-                  <option key={uid} value={uid}>
-                    {uid}
-                  </option>
-                ))}
-              </select>
-              <Button type="submit" variant="primary" disabled={busy}>
-                {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-                Send
-              </Button>
+              <div className="mt-1 text-slate-700">{message.body}</div>
             </div>
-          </form>
-        </>
-      ) : null}
-    </Card>
+          ))
+        ) : (
+          <div className="rounded-lg border border-dashed border-slate-200 px-3 py-4 text-sm text-slate-500">
+            No messages yet.
+          </div>
+        )}
+      </div>
+      <form onSubmit={handleSubmit} className="space-y-2">
+        <textarea
+          className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+          rows={3}
+          placeholder="Write a note or reminder"
+          value={body}
+          onChange={(e) => setBody(e.target.value)}
+          disabled={busy}
+        />
+        <div className="flex items-center justify-between">
+          <select
+            className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            value={recipient}
+            onChange={(e) => setRecipient(e.target.value)}
+            disabled={busy}
+          >
+            <option value="all">All participants</option>
+            {participants.map((uid) => (
+              <option key={uid} value={uid}>
+                {uid}
+              </option>
+            ))}
+          </select>
+          <Button type="submit" variant="primary" disabled={busy}>
+            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+            Send
+          </Button>
+        </div>
+      </form>
+    </SectionCollapse>
   );
 };
 
@@ -1254,13 +1272,7 @@ export default function App() {
   const [pendingJoin, setPendingJoin] = useState(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [ambientEnabled, setAmbientEnabled] = useState(false);
-  const [panelExpanded, setPanelExpanded] = useState({
-    participants: false,
-    list: false,
-    scoring: false,
-    results: false,
-    messages: false,
-  });
+  const [panelExpanded, setPanelExpanded] = useState(() => buildPanelState());
 
   const soundscapeRef = useRef(null);
   const notificationCountRef = useRef(0);
@@ -1274,6 +1286,8 @@ export default function App() {
     : allowedLoginModes.has(queryParams.mode)
     ? queryParams.mode
     : undefined;
+
+  const panelStorageKey = sessionDoc?.sid ? `${PANEL_STORAGE_PREFIX}${sessionDoc.sid}` : null;
 
   useEffect(() => {
     soundscapeRef.current = createSoundscape();
@@ -1583,14 +1597,49 @@ export default function App() {
   }, [user, activeSid]);
 
   useEffect(() => {
-    setPanelExpanded({
-      participants: false,
-      list: false,
-      scoring: false,
-      results: false,
-      messages: false,
-    });
-  }, [sessionDoc?.sid]);
+    if (typeof window === "undefined") {
+      setPanelExpanded(buildPanelState());
+      return;
+    }
+    if (!panelStorageKey) {
+      setPanelExpanded(buildPanelState());
+      return;
+    }
+    try {
+      const raw = window.localStorage.getItem(panelStorageKey);
+      if (raw) {
+        setPanelExpanded(buildPanelState(JSON.parse(raw)));
+      } else {
+        setPanelExpanded(buildPanelState());
+      }
+    } catch (err) {
+      console.warn("Unable to read panel state", err);
+      setPanelExpanded(buildPanelState());
+    }
+  }, [panelStorageKey]);
+
+  const persistPanelState = useCallback(
+    (nextState) => {
+      if (!panelStorageKey || typeof window === "undefined") return;
+      try {
+        window.localStorage.setItem(panelStorageKey, JSON.stringify(nextState));
+      } catch (err) {
+        console.warn("Unable to persist panel state", err);
+      }
+    },
+    [panelStorageKey],
+  );
+
+  const updatePanelState = useCallback(
+    (updater) => {
+      setPanelExpanded((prev) => {
+        const next = typeof updater === "function" ? updater(prev) : updater;
+        persistPanelState(next);
+        return next;
+      });
+    },
+    [persistPanelState],
+  );
 
   const handleCreateSession = async ({ title, requiredNames, nameFocus, invites }) => {
     if (!user) return;
@@ -1630,11 +1679,24 @@ export default function App() {
   };
 
   const togglePanel = (key) => {
-    setPanelExpanded((prev) => ({
+    updatePanelState((prev) => ({
       ...prev,
       [key]: !prev[key],
     }));
   };
+
+  const setAllPanels = (value) => {
+    updatePanelState(() => {
+      const next = {};
+      PANEL_KEYS.forEach((panelKey) => {
+        next[panelKey] = value;
+      });
+      return next;
+    });
+  };
+
+  const allExpanded = PANEL_KEYS.every((panelKey) => panelExpanded[panelKey]);
+  const allCollapsed = PANEL_KEYS.every((panelKey) => !panelExpanded[panelKey]);
 
   const handleSaveList = async (finalize = false) => {
     if (!user || !sessionDoc) return;
@@ -2123,6 +2185,15 @@ export default function App() {
               </div>
             </Card>
 
+            <div className="flex items-center justify-end gap-2">
+              <Button variant="subtle" onClick={() => setAllPanels(true)} disabled={allExpanded}>
+                Expand all
+              </Button>
+              <Button variant="subtle" onClick={() => setAllPanels(false)} disabled={allCollapsed}>
+                Collapse all
+              </Button>
+            </div>
+
             <ParticipantsPanel
               session={sessionDoc}
               isOwner={isOwner}
@@ -2164,7 +2235,7 @@ export default function App() {
               onToggle={() => togglePanel("list")}
             />
 
-            <ScoringPanel
+            <OtherListsPanel
               lists={lists}
               scores={scoringModel.result}
               currentUser={user}
@@ -2175,8 +2246,8 @@ export default function App() {
               onSaveDraft={handleSaveScoreDraft}
               onSubmitScores={handleSubmitScores}
               submitting={scoreSubmitting}
-              expanded={panelExpanded.scoring}
-              onToggle={() => togglePanel("scoring")}
+              expanded={panelExpanded.otherLists}
+              onToggle={() => togglePanel("otherLists")}
             />
 
             <ResultsPanel
