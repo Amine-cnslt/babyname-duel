@@ -19,4 +19,5 @@ RUN pip install --no-cache-dir --upgrade pip \
 COPY . .
 COPY --from=frontend /app/dist ./dist
 
-CMD ["python", "app.py"]
+ENTRYPOINT ["python"]
+CMD ["app.py"]
