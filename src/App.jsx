@@ -1367,7 +1367,7 @@ export default function App() {
   const initialResetToken = queryParams.resetToken || "";
   const initialInviteEmail =
     typeof queryParams.email === "string" && queryParams.email
-      ? queryParams.email.trim().toLowerCase()
+      ? decodeURIComponent(queryParams.email).trim().toLowerCase()
       : "";
   const allowedLoginModes = useMemo(() => new Set(["signin", "signup", "forgot", "reset"]), []);
   const initialLoginMode = initialResetToken
@@ -1454,7 +1454,11 @@ export default function App() {
 
   useEffect(() => {
     if (queryParams.sid && queryParams.token) {
-      setPendingJoin({ sid: queryParams.sid, token: queryParams.token });
+      setPendingJoin({
+        sid: queryParams.sid,
+        token: queryParams.token,
+        email: initialInviteEmail || undefined,
+      });
     }
   }, [queryParams.sid, queryParams.token]);
 
