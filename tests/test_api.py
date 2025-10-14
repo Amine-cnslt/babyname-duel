@@ -5,6 +5,39 @@ def test_api_endpoint_returns_success(client):
     assert response.get_json() == {"message": "Flask backend is working!"}
 
 
+def test_invite_info_endpoint_returns_session_metadata(client, monkeypatch):
+    monkeypatch.setattr("app._send_email", lambda **_: True)
+
+    owner_email = "owner@example.com"
+    invite_email = "invitee@example.com"
+    create_resp = client.post(
+        "/api/sessions",
+        json={
+            "email": owner_email,
+            "title": "Invite info",
+            "requiredNames": 12,
+            "nameFocus": "boy",
+            "invites": [invite_email],
+        },
+    )
+    assert create_resp.status_code == 200
+    payload = create_resp.get_json()["session"]
+    sid = payload["sid"]
+    token = payload["invites"][0]["link"].split("token=")[-1]
+
+    info_resp = client.get(f"/api/invite-info?sid={sid}&token={token}")
+    assert info_resp.status_code == 200
+    info = info_resp.get_json()
+    assert info["ok"] is True
+    invite = info["invite"]
+    assert invite["sid"] == sid
+    assert invite["token"] == token
+    assert invite["email"] == invite_email
+    assert invite["requiredNames"] == 12
+    assert invite["nameFocus"] == "boy"
+    assert invite["title"] == "Invite info"
+
+
 def test_signup_rejects_invalid_email(client):
     response = client.post(
         "/api/signup",
@@ -173,3 +206,42 @@ def test_inviting_existing_user_sends_notification_email(client, monkeypatch):
     session_doc = session_view.get_json()["session"]
     assert participant_email in session_doc["participantIds"]
     assert not session_doc.get("pendingInvites")
+
+
+def test_joined_participant_receives_required_names_metadata(client, monkeypatch):
+    monkeypatch.setattr("app._send_email", lambda **_: True)
+
+    owner_email = "owner@example.com"
+    joiner_email = "joiner@example.com"
+
+    create_resp = client.post(
+        "/api/sessions",
+        json={
+            "email": owner_email,
+            "title": "Metadata session",
+            "requiredNames": 16,
+            "nameFocus": "girl",
+            "invites": [joiner_email],
+        },
+    )
+    assert create_resp.status_code == 200
+    session_payload = create_resp.get_json()["session"]
+    sid = session_payload["sid"]
+    token = session_payload["invites"][0]["link"].split("token=")[-1]
+
+    # Join the session
+    client.post(
+        "/api/signup",
+        json={"fullName": "Joiner", "email": joiner_email, "password": "Secret123"},
+    )
+    join_resp = client.post(
+        "/api/sessions/join",
+        json={"email": joiner_email, "token": token, "sid": sid},
+    )
+    assert join_resp.status_code == 200
+
+    session_resp = client.get(f"/api/sessions/{sid}?email={joiner_email}")
+    assert session_resp.status_code == 200
+    session_doc = session_resp.get_json()["session"]
+    assert session_doc["requiredNames"] == 16
+    assert session_doc["nameFocus"] == "girl"

@@ -1355,6 +1355,7 @@ export default function App() {
   const [lockBusy, setLockBusy] = useState(false);
   const [directMessageBusy, setDirectMessageBusy] = useState(false);
   const [pendingJoin, setPendingJoin] = useState(null);
+  const [inviteInfo, setInviteInfo] = useState(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [ambientEnabled, setAmbientEnabled] = useState(false);
   const [panelExpanded, setPanelExpanded] = useState(() => buildPanelState());
@@ -1366,9 +1367,9 @@ export default function App() {
 
   const queryParams = useQueryParams();
   const initialResetToken = queryParams.resetToken || "";
-  const initialInviteEmail =
+  const inviteQueryEmail =
     typeof queryParams.email === "string" && queryParams.email
-      ? decodeURIComponent(queryParams.email).trim().toLowerCase()
+      ? queryParams.email.trim().toLowerCase()
       : "";
   const allowedLoginModes = useMemo(() => new Set(["signin", "signup", "forgot", "reset"]), []);
   const initialLoginMode = initialResetToken
@@ -1376,7 +1377,9 @@ export default function App() {
     : allowedLoginModes.has(queryParams.mode)
     ? queryParams.mode
     : undefined;
-  const lockLoginEmail = Boolean(initialInviteEmail);
+  const inviteEmailRaw = inviteInfo?.email || inviteQueryEmail;
+  const inviteEmail = inviteEmailRaw ? inviteEmailRaw.trim().toLowerCase() : "";
+  const lockLoginEmail = Boolean(inviteEmail);
 
   const panelStorageKey = sessionDoc?.sid ? `${PANEL_STORAGE_PREFIX}${sessionDoc.sid}` : null;
 
@@ -1454,14 +1457,38 @@ export default function App() {
 
 
   useEffect(() => {
-    if (queryParams.sid && queryParams.token) {
-      setPendingJoin({
-        sid: queryParams.sid,
-        token: queryParams.token,
-        email: initialInviteEmail || undefined,
-      });
+    if (!queryParams.sid || !queryParams.token) {
+      setInviteInfo(null);
+      return;
     }
-  }, [queryParams.sid, queryParams.token]);
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await api.fetchInviteInfo({ sid: queryParams.sid, token: queryParams.token });
+        if (cancelled) return;
+        const invite = res.invite || res;
+        setInviteInfo(invite);
+        setPendingJoin({
+          sid: invite.sid,
+          token: invite.token,
+          email: invite.email,
+        });
+      } catch (err) {
+        console.error("Invite metadata load failed", err);
+        if (!cancelled) {
+          setInviteInfo(null);
+          setPendingJoin({
+            sid: queryParams.sid,
+            token: queryParams.token,
+            email: inviteQueryEmail || undefined,
+          });
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [queryParams.sid, queryParams.token, inviteQueryEmail]);
 
   useEffect(() => {
     const resolveRedirect = async () => {
@@ -2209,18 +2236,21 @@ export default function App() {
   };
 
   useEffect(() => {
-    if (!initialInviteEmail || !user) return;
+    if (!inviteEmail || !user) {
+      if (!inviteEmail) inviteMismatchRef.current = false;
+      return;
+    }
     const lowerUser = (user.email || "").trim().toLowerCase();
-    if (lowerUser && lowerUser !== initialInviteEmail && !inviteMismatchRef.current) {
+    if (lowerUser && lowerUser !== inviteEmail && !inviteMismatchRef.current) {
       inviteMismatchRef.current = true;
       if (typeof window !== "undefined") {
         window.alert(
-          `You are currently signed in as ${user.email}. Please join with the invited email ${initialInviteEmail}. We signed you out so you can continue.`,
+          `You are currently signed in as ${user.email}. Please join with the invited email ${inviteEmail}. We signed you out so you can continue.`,
         );
       }
       handleSignOut({ preservePending: true }).catch(() => {});
     }
-  }, [initialInviteEmail, user, handleSignOut]);
+  }, [inviteEmail, user, handleSignOut]);
 
   const handleSignUp = async (email, password, fullName) => {
     try {
@@ -2257,7 +2287,7 @@ export default function App() {
             <LoginPage
               initialMode={initialLoginMode}
               initialResetToken={initialResetToken}
-              initialEmail={initialInviteEmail}
+              initialEmail={inviteEmail}
               lockEmail={lockLoginEmail}
               onGoogleSignIn={handleSignInGoogle}
               onEmailSignIn={handleSignInEmail}

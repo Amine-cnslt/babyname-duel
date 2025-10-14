@@ -94,6 +94,41 @@ app.logger.setLevel(logging.INFO)
 def test_api():
     return {"message": "Flask backend is working!"}, 200
 
+
+@app.route("/api/invite-info", methods=["GET"])
+def api_invite_info():
+    token = (request.args.get("token") or "").strip()
+    sid = (request.args.get("sid") or "").strip()
+    if not token:
+        return jsonify({"ok": False, "error": "token query param required"}), 400
+
+    db = SessionLocal()
+    try:
+        invite_query = db.query(SessionInvite).filter(SessionInvite.token == token)
+        if sid:
+            invite_query = invite_query.filter(SessionInvite.session_id == sid)
+        invite = invite_query.first()
+        if not invite:
+            return jsonify({"ok": False, "error": "Invite not found"}), 404
+
+        session = db.query(Session).filter_by(id=invite.session_id).first()
+        if not session:
+            return jsonify({"ok": False, "error": "Session not found"}), 404
+
+        payload = {
+            "sid": session.id,
+            "token": invite.token,
+            "email": invite.email,
+            "title": session.title,
+            "requiredNames": session.max_names or 10,
+            "nameFocus": session.name_focus or "mix",
+            "createdBy": session.created_by,
+            "invitesLocked": bool(session.invites_locked),
+        }
+        return jsonify({"ok": True, "invite": payload})
+    finally:
+        db.close()
+
 raw_origins = os.getenv("ALLOWED_ORIGIN", "*")
 if raw_origins.strip() == "*":
     allowed_origins = "*"

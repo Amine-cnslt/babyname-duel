@@ -85,6 +85,13 @@ export async function joinWithToken({ email, token, sid }) {
   });
 }
 
+export async function fetchInviteInfo({ sid, token }) {
+  if (!token) throw new Error("token required");
+  const params = new URLSearchParams({ token });
+  if (sid) params.set("sid", sid);
+  return request(`/api/invite-info?${params.toString()}`);
+}
+
 export async function getSession({ email, sid }) {
   const path = email
     ? `/api/sessions/${encodeURIComponent(sid)}?email=${encodeURIComponent(email)}`
