@@ -1380,6 +1380,8 @@ export default function App() {
   const inviteEmailRaw = inviteInfo?.email || inviteQueryEmail;
   const inviteEmail = inviteEmailRaw ? inviteEmailRaw.trim().toLowerCase() : "";
   const lockLoginEmail = Boolean(inviteEmail);
+  const inviteRequiredNames = inviteInfo?.requiredNames || 0;
+  const inviteNameFocus = inviteInfo?.nameFocus || null;
 
   const panelStorageKey = sessionDoc?.sid ? `${PANEL_STORAGE_PREFIX}${sessionDoc.sid}` : null;
 
@@ -1389,6 +1391,21 @@ export default function App() {
       soundscapeRef.current?.dispose?.();
     };
   }, []);
+
+  useEffect(() => {
+    if (sessionDoc || !inviteRequiredNames) {
+      return;
+    }
+    setListDraft((prev) => {
+      const currentLength = prev?.names?.length || 0;
+      if (currentLength === inviteRequiredNames) {
+        return prev;
+      }
+      const names = Array.from({ length: inviteRequiredNames }, (_, index) => prev.names?.[index] || "");
+      const ranks = Array.from({ length: inviteRequiredNames }, (_, index) => prev.ranks?.[index] ?? "");
+      return { ...prev, names, ranks };
+    });
+  }, [sessionDoc, inviteRequiredNames]);
 
   const ensureAudioContext = useCallback(() => {
     const manager = soundscapeRef.current;
@@ -2266,7 +2283,10 @@ export default function App() {
     }
   };
 
-  const requiredNames = sessionDoc?.requiredNames || sessionDoc?.maxNames || 0;
+  const requiredNames =
+    sessionDoc?.requiredNames || sessionDoc?.maxNames || inviteRequiredNames || 0;
+  const activeNameFocus =
+    sessionDoc?.nameFocus || inviteNameFocus || "mix";
   const isOwner = sessionDoc?.createdBy === user?.email;
   return (
     <div className="relative min-h-screen text-slate-800">
@@ -2312,7 +2332,7 @@ export default function App() {
                   Required names: {requiredNames} · Status: {sessionDoc.status}
                 </div>
                 <div className="text-xs text-slate-500">
-                  Name theme: {NAME_FOCUS_LABELS[sessionDoc.nameFocus] || NAME_FOCUS_LABELS.mix}
+                  Name theme: {NAME_FOCUS_LABELS[activeNameFocus] || NAME_FOCUS_LABELS.mix}
                 </div>
                 <div className="text-xs text-slate-500">
                   Created {formatDate(sessionDoc.createdAt)} by {sessionDoc.createdBy}
@@ -2363,7 +2383,7 @@ export default function App() {
 
             <ListEditor
               requiredNames={requiredNames}
-              nameFocus={sessionDoc.nameFocus}
+              nameFocus={activeNameFocus}
               listState={listDraft}
               onChangeName={(index, value) =>
                 setListDraft((prev) => {
@@ -2392,7 +2412,7 @@ export default function App() {
               scores={scoringModel.result}
               currentUser={user}
               requiredNames={requiredNames}
-              nameFocus={sessionDoc.nameFocus}
+              nameFocus={activeNameFocus}
               draftState={scoreDrafts}
               completedScores={completedScores}
               onSaveDraft={handleSaveScoreDraft}
