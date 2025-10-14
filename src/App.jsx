@@ -288,7 +288,7 @@ const TopNav = ({ user, onSignOut, ambientEnabled, onToggleAmbient }) => (
           </span>
         )}
         {user ? (
-          <Button onClick={onSignOut}>
+          <Button onClick={() => onSignOut?.()}>
             <LogOut className="h-4 w-4" />
             Sign out
           </Button>
@@ -1362,6 +1362,7 @@ export default function App() {
   const soundscapeRef = useRef(null);
   const notificationCountRef = useRef(0);
   const notificationsInitializedRef = useRef(false);
+  const inviteMismatchRef = useRef(false);
 
   const queryParams = useQueryParams();
   const initialResetToken = queryParams.resetToken || "";
@@ -2147,7 +2148,7 @@ export default function App() {
     }
   };
 
-  const handleSignOut = async () => {
+  const handleSignOut = async ({ preservePending = false } = {}) => {
     try {
       await signOutFirebase().catch(() => {});
     } finally {
@@ -2163,7 +2164,9 @@ export default function App() {
       setScoreDrafts({});
       setCompletedScores({});
       setNotifications([]);
-      setPendingJoin(null);
+      if (!preservePending) {
+        setPendingJoin(null);
+      }
       setCreateOpen(false);
       notificationCountRef.current = 0;
       notificationsInitializedRef.current = false;
@@ -2204,6 +2207,20 @@ export default function App() {
       playToken("warning");
     }
   };
+
+  useEffect(() => {
+    if (!initialInviteEmail || !user) return;
+    const lowerUser = (user.email || "").trim().toLowerCase();
+    if (lowerUser && lowerUser !== initialInviteEmail && !inviteMismatchRef.current) {
+      inviteMismatchRef.current = true;
+      if (typeof window !== "undefined") {
+        window.alert(
+          `You are currently signed in as ${user.email}. Please join with the invited email ${initialInviteEmail}. We signed you out so you can continue.`,
+        );
+      }
+      handleSignOut({ preservePending: true }).catch(() => {});
+    }
+  }, [initialInviteEmail, user, handleSignOut]);
 
   const handleSignUp = async (email, password, fullName) => {
     try {
