@@ -17,13 +17,25 @@ def test_invite_info_endpoint_returns_session_metadata(client, monkeypatch):
             "title": "Invite info",
             "requiredNames": 12,
             "nameFocus": "boy",
-            "invites": [invite_email],
         },
     )
     assert create_resp.status_code == 200
     payload = create_resp.get_json()["session"]
     sid = payload["sid"]
-    token = payload["invites"][0]["link"].split("token=")[-1]
+    template_resp = client.post(
+        f"/api/sessions/{sid}/lists",
+        json={"email": owner_email, "names": [], "selfRanks": {}, "slotCount": 12},
+    )
+    assert template_resp.status_code == 200
+
+    invite_resp = client.post(
+        f"/api/sessions/{sid}/participants",
+        json={"email": owner_email, "participants": [invite_email]},
+    )
+    assert invite_resp.status_code == 200
+    invite_payload = invite_resp.get_json()
+    assert invite_payload["ok"] is True
+    token = invite_payload["results"][0]["link"].split("token=")[-1]
 
     info_resp = client.get(f"/api/invite-info?sid={sid}&token={token}")
     assert info_resp.status_code == 200
@@ -36,6 +48,7 @@ def test_invite_info_endpoint_returns_session_metadata(client, monkeypatch):
     assert invite["requiredNames"] == 12
     assert invite["nameFocus"] == "boy"
     assert invite["title"] == "Invite info"
+    assert invite["templateReady"] is True
 
 
 def test_signup_rejects_invalid_email(client):
@@ -110,27 +123,38 @@ def test_inviting_new_participant_sends_email_and_tracks_pending_invite(client, 
             "title": "Family picks",
             "requiredNames": 8,
             "nameFocus": "mix",
-            "invites": [invitee_email],
         },
     )
     assert response.status_code == 200
-    payload = response.get_json()
-    assert payload["ok"] is True
+    sid = response.get_json()["session"]["sid"]
 
-    session_data = payload["session"]
-    assert session_data["invites"][0]["email"] == invitee_email
-    assert session_data["invites"][0]["emailSent"] is True
-    assert "mode=signup" in session_data["invites"][0]["link"]
-    assert "email=guest%40example.com" in session_data["invites"][0]["link"]
+    template_resp = client.post(
+        f"/api/sessions/{sid}/lists",
+        json={"email": owner_email, "names": [], "selfRanks": {}, "slotCount": 8},
+    )
+    assert template_resp.status_code == 200
+
+    invite_resp = client.post(
+        f"/api/sessions/{sid}/participants",
+        json={"email": owner_email, "participants": [invitee_email]},
+    )
+    assert invite_resp.status_code == 200
+    invite_payload = invite_resp.get_json()
+    assert invite_payload["ok"] is True
+    result_row = invite_payload["results"][0]
+    assert result_row["email"] == invitee_email
+    assert result_row["status"] == "invite-sent"
+    assert result_row["emailSent"] is True
+    assert "mode=signup" in result_row["link"]
+    assert "email=guest%40example.com" in result_row["link"]
 
     assert sent_messages, "Expected invite email to be dispatched"
     assert sent_messages[0]["recipient"] == invitee_email
     assert "Family picks" in sent_messages[0]["body"]
-    assert session_data["invites"][0]["link"] in sent_messages[0]["body"]
+    assert result_row["link"] in sent_messages[0]["body"]
 
     from app import SessionInvite, SessionLocal  # lazy import to use updated metadata
 
-    sid = session_data["sid"]
     db = SessionLocal()
     try:
         invites = db.query(SessionInvite).filter_by(session_id=sid).all()
@@ -173,6 +197,12 @@ def test_inviting_existing_user_sends_notification_email(client, monkeypatch):
     )
     assert session_resp.status_code == 200
     sid = session_resp.get_json()["session"]["sid"]
+
+    template_resp = client.post(
+        f"/api/sessions/{sid}/lists",
+        json={"email": owner_email, "names": [], "selfRanks": {}, "slotCount": 8},
+    )
+    assert template_resp.status_code == 200
 
     sent_messages.clear()
     invite_resp = client.post(
@@ -221,13 +251,23 @@ def test_joined_participant_receives_required_names_metadata(client, monkeypatch
             "title": "Metadata session",
             "requiredNames": 16,
             "nameFocus": "girl",
-            "invites": [joiner_email],
         },
     )
     assert create_resp.status_code == 200
-    session_payload = create_resp.get_json()["session"]
-    sid = session_payload["sid"]
-    token = session_payload["invites"][0]["link"].split("token=")[-1]
+    sid = create_resp.get_json()["session"]["sid"]
+
+    template_resp = client.post(
+        f"/api/sessions/{sid}/lists",
+        json={"email": owner_email, "names": [], "selfRanks": {}, "slotCount": 16},
+    )
+    assert template_resp.status_code == 200
+
+    invite_resp = client.post(
+        f"/api/sessions/{sid}/participants",
+        json={"email": owner_email, "participants": [joiner_email]},
+    )
+    assert invite_resp.status_code == 200
+    token = invite_resp.get_json()["results"][0]["link"].split("token=")[-1]
 
     # Join the session
     client.post(
@@ -245,3 +285,22 @@ def test_joined_participant_receives_required_names_metadata(client, monkeypatch
     session_doc = session_resp.get_json()["session"]
     assert session_doc["requiredNames"] == 16
     assert session_doc["nameFocus"] == "girl"
+
+
+def test_inviting_before_template_ready_is_blocked(client):
+    owner_email = "owner@example.com"
+    invite_email = "friend@example.com"
+    create_resp = client.post(
+        "/api/sessions",
+        json={"email": owner_email, "title": "Blocked", "requiredNames": 8, "nameFocus": "mix"},
+    )
+    assert create_resp.status_code == 200
+    sid = create_resp.get_json()["session"]["sid"]
+
+    invite_resp = client.post(
+        f"/api/sessions/{sid}/participants",
+        json={"email": owner_email, "participants": [invite_email]},
+    )
+    assert invite_resp.status_code == 409
+    body = invite_resp.get_json()
+    assert "template" in body["error"]

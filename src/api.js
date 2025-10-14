@@ -99,10 +99,12 @@ export async function getSession({ email, sid }) {
   return request(path);
 }
 
-export async function upsertOwnerList({ sid, email, names, selfRanks, finalize = false }) {
+export async function upsertOwnerList({ sid, email, names, selfRanks, finalize = false, slotCount }) {
+  const payload = { email, names, selfRanks, finalize };
+  if (slotCount !== undefined) payload.slotCount = slotCount;
   return request(`/api/sessions/${encodeURIComponent(sid)}/lists`, {
     method: "POST",
-    json: { email, names, selfRanks, finalize },
+    json: payload,
   });
 }
 

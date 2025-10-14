@@ -749,6 +749,7 @@ const ParticipantsPanel = ({
   const participants = session?.participantIds || session?.voterIds || [];
   const pendingInvites = Array.isArray(session?.pendingInvites) ? session.pendingInvites : [];
   const focusLabel = NAME_FOCUS_LABELS[session?.nameFocus] || NAME_FOCUS_LABELS.mix;
+  const templateReady = Boolean(session?.templateReady);
 
   const headerAction = isOwner ? (
     <Button onClick={onLockInvites} disabled={lockBusy || session?.invitesLocked}>
@@ -776,6 +777,10 @@ const ParticipantsPanel = ({
             onSubmit={async (event) => {
               event.preventDefault();
               if (!email.trim()) return;
+              if (!templateReady) {
+                alert("Create and save your list template before inviting participants.");
+                return;
+              }
               await onInvite(email.trim());
               setEmail("");
             }}
@@ -786,13 +791,19 @@ const ParticipantsPanel = ({
               placeholder="Invite by email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              disabled={inviteBusy}
+              disabled={inviteBusy || !templateReady}
             />
-            <Button type="submit" variant="primary" disabled={inviteBusy}>
+            <Button type="submit" variant="primary" disabled={inviteBusy || !templateReady}>
               {inviteBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserPlus className="h-4 w-4" />}
               Invite
             </Button>
           </form>
+        ) : null}
+
+        {!templateReady && isOwner ? (
+          <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+            Create and save your list template first. Once it&apos;s ready, you can invite others.
+          </div>
         ) : null}
 
         <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
@@ -1890,6 +1901,7 @@ export default function App() {
         names: pairs.map((item) => item.name),
         selfRanks,
         finalize,
+        slotCount: required,
       });
       await loadSession(sessionDoc.sid);
       await refreshNotifications();

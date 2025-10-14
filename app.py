@@ -124,6 +124,7 @@ def api_invite_info():
             "nameFocus": session.name_focus or "mix",
             "createdBy": session.created_by,
             "invitesLocked": bool(session.invites_locked),
+            "templateReady": bool(session.template_ready),
         }
         return jsonify({"ok": True, "invite": payload})
     finally:
@@ -165,14 +166,21 @@ def ensure_schema(retries: int = 5, delay: float = 2.0):
                     conn.execute(sql_text('ALTER TABLE sessions ADD COLUMN max_names INTEGER DEFAULT 10'))
                 if 'invites_locked' not in session_cols:
                     conn.execute(sql_text('ALTER TABLE sessions ADD COLUMN invites_locked INTEGER DEFAULT 0'))
+                if 'template_ready' not in session_cols:
+                    conn.execute(sql_text('ALTER TABLE sessions ADD COLUMN template_ready INTEGER DEFAULT 0'))
                 if 'name_focus' not in session_cols:
                     conn.execute(sql_text("ALTER TABLE sessions ADD COLUMN name_focus VARCHAR(16) DEFAULT 'mix'"))
                 conn.execute(sql_text('UPDATE sessions SET max_names = 10 WHERE max_names IS NULL OR max_names < 5'))
                 conn.execute(sql_text('UPDATE sessions SET invites_locked = 0 WHERE invites_locked IS NULL'))
+                conn.execute(sql_text('UPDATE sessions SET template_ready = 0 WHERE template_ready IS NULL'))
                 conn.execute(sql_text("UPDATE sessions SET name_focus = 'mix' WHERE name_focus IS NULL OR name_focus = ''"))
 
                 if not inspector.has_table('owner_list_states'):
                     OwnerListState.__table__.create(bind=engine, checkfirst=True)
+                else:
+                    owner_state_cols = {col['name'] for col in inspector.get_columns('owner_list_states')}
+                    if 'slot_count' not in owner_state_cols:
+                        conn.execute(sql_text('ALTER TABLE owner_list_states ADD COLUMN slot_count INTEGER DEFAULT 0'))
                 if not inspector.has_table('messages'):
                     Message.__table__.create(bind=engine, checkfirst=True)
                 if not inspector.has_table('notifications'):
@@ -719,6 +727,7 @@ class Session(Base):
     invite_owner_token = Column(String(64), nullable=False)
     invite_voter_token = Column(String(64), nullable=False)
     invites_locked = Column(Boolean, nullable=False, default=False)
+    template_ready = Column(Boolean, nullable=False, default=False)
     created_at = Column(DateTime, default=now_utc, nullable=False)
 
     members = relationship("Member", back_populates="session", cascade="all, delete-orphan")
@@ -784,6 +793,7 @@ class OwnerListState(Base):
     status = Column(String(16), nullable=False, default="draft")
     updated_at = Column(DateTime, default=now_utc, nullable=False)
     submitted_at = Column(DateTime, nullable=True)
+    slot_count = Column(Integer, nullable=False, default=0)
 
     session = relationship("Session", back_populates="owner_states")
 
@@ -1141,6 +1151,7 @@ def _serialize_session_for_user(session: Session, *, role: str, owners: int, max
         "requiredNames": max_names,
         "nameFocus": session.name_focus or "mix",
         "invitesLocked": bool(session.invites_locked),
+        "templateReady": bool(session.template_ready),
         "createdAt": _isoformat(session.created_at),
         "updatedAt": _isoformat(activity_ts or session.created_at),
         "role": role,
@@ -1166,6 +1177,7 @@ def _serialize_session_doc(session: Session, members, *, include_tokens: bool):
         "createdAt": _isoformat(session.created_at),
         "createdBy": session.created_by,
         "invitesLocked": bool(session.invites_locked),
+        "templateReady": bool(session.template_ready),
     }
     if include_tokens:
         data["inviteOwnerToken"] = session.invite_owner_token
@@ -1398,6 +1410,9 @@ def api_create_session():
             role = _session_member_role(raw.get("role") if isinstance(raw, dict) else None)
             cleaned_invites.append({"email": invite_email, "role": role})
 
+        if cleaned_invites:
+            return jsonify({"ok": False, "error": "Create your list template before inviting participants."}), 409
+
         sid = _uuid()
         owner_token = _uuid()
         voter_token = _uuid()
@@ -1412,6 +1427,7 @@ def api_create_session():
             status="active",
             invite_owner_token=owner_token,
             invite_voter_token=voter_token,
+            template_ready=False,
         )
         member = Member(session_id=sid, uid=email, role="owner")
         owner_state = OwnerListState(session_id=sid, owner_uid=email, status="draft")
@@ -1421,14 +1437,7 @@ def api_create_session():
             db.add(member)
             db.add(owner_state)
             db.flush()
-            origin = _compute_invite_origin(request)
-            invite_payload = _invite_participants(
-                db,
-                session=session,
-                owner_email=email,
-                invite_specs=cleaned_invites,
-                origin=origin,
-            )
+            invite_payload = []
             _log_activity(
                 db,
                 actor=email,
@@ -1466,6 +1475,7 @@ def api_create_session():
             "createdBy": email,
             "viewerRole": "owner",
             "invitesLocked": False,
+            "templateReady": False,
             "listStates": {
                 email: {
                     "status": "draft",
@@ -1571,6 +1581,7 @@ def api_get_session(sid):
                 "status": state.status,
                 "submittedAt": _isoformat(state.submitted_at),
                 "updatedAt": _isoformat(state.updated_at),
+                "slotCount": state.slot_count or 0,
             }
             for state in state_rows
         }
@@ -1790,6 +1801,8 @@ def api_add_participants(sid):
             return jsonify({"ok": False, "error": "Only the session owner can invite participants"}), 403
         if session.status == "archived":
             return jsonify({"ok": False, "error": "Session archived"}), 409
+        if not session.template_ready:
+            return jsonify({"ok": False, "error": "Create your list template before inviting participants."}), 409
 
         cleaned_specs = []
         seen = set()
@@ -1957,6 +1970,7 @@ def api_upsert_list(sid):
         names = data.get("names") or []
         self_ranks = data.get("selfRanks") or {}
         finalize = bool(data.get("finalize"))
+        slot_count_raw = data.get("slotCount")
 
         if not email or not _is_valid_email(email):
             return jsonify({"ok": False, "error": "Valid email required"}), 400
@@ -1969,7 +1983,29 @@ def api_upsert_list(sid):
         if session.status == "completed":
             return jsonify({"ok": False, "error": "Session completed; lists are locked"}), 409
 
-        max_names = session.max_names or 10
+        current_max = session.max_names or 10
+        slot_count = None
+        if slot_count_raw is not None:
+            try:
+                slot_count = int(slot_count_raw)
+            except (TypeError, ValueError):
+                return jsonify({"ok": False, "error": "slotCount must be an integer"}), 400
+        if slot_count is None or slot_count <= 0:
+            slot_count = current_max
+
+        if session.created_by == email:
+            if slot_count < 4 or slot_count > 100:
+                return jsonify({"ok": False, "error": "List template must be between 4 and 100 names"}), 400
+            focus = session.name_focus or "mix"
+            if focus == "mix" and slot_count % 4 != 0:
+                return jsonify({"ok": False, "error": "For mix sessions, names must be a multiple of 4"}), 400
+            if focus in {"girl", "boy"} and slot_count % 2 != 0:
+                return jsonify({"ok": False, "error": "For single-focus sessions, names must be an even number"}), 400
+            if slot_count != current_max:
+                session.max_names = slot_count
+            session.template_ready = True
+
+        max_names = session.max_names or slot_count or 10
 
         member = _ensure_member(db, sid, email)
         editable_roles = {"owner", "voter", "participant"}
@@ -2038,6 +2074,7 @@ def api_upsert_list(sid):
             state.status = "submitted" if finalize else "draft"
             state.updated_at = now_utc()
             state.submitted_at = now_utc() if finalize else None
+            state.slot_count = slot_count if email == session.created_by else max_names
             if finalize:
                 _prime_name_metadata(db, [name for name, _ in cleaned])
             for target in notify_targets:
