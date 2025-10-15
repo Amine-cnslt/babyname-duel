@@ -105,12 +105,8 @@ const FactButton = ({ fact }) => {
   const [position, setPosition] = useState({ top: 0, left: 0 });
   const anchorRef = useRef(null);
   const tooltipRef = useRef(null);
-
-  if (!fact || (!fact.info && !fact.audioBase64)) {
-    return null;
-  }
-
-  const audioUrl = fact.audioBase64
+  const hasFact = Boolean(fact && (fact.info || fact.audioBase64));
+  const audioUrl = fact?.audioBase64
     ? `data:${fact.audioMime || "audio/mpeg"};base64,${fact.audioBase64}`
     : null;
 
@@ -212,6 +208,10 @@ const FactButton = ({ fact }) => {
       )
     : null;
 
+  if (!hasFact) {
+    return null;
+  }
+
   return (
     <>
       <button
@@ -300,7 +300,7 @@ const TopNav = ({ user, onSignOut, ambientEnabled, onToggleAmbient }) => (
 
 const firstNameFromEmail = (email) => {
   if (!email) return "Someone";
-  const name = email.split("@")[0].replace(/[._+\-]+/g, " ");
+  const name = email.split("@")[0].replace(/[._+-]+/g, " ");
   return name ? name.charAt(0).toUpperCase() + name.slice(1) : "Someone";
 };
 
@@ -1246,9 +1246,10 @@ const ResultsPanel = ({ lists, scores, requiredNames, invitesLocked, onTopTieCha
     }
   }
 
+  const requiredCopy = requiredNames ? ` Each list carries ${requiredNames} names.` : "";
   const statusCopy = invitesLocked
-    ? "Scores reveal once everyone finishes. Lower scores are better."
-    : "Scores remain hidden until invites are locked.";
+    ? `Scores reveal once everyone finishes. Lower scores are better.${requiredCopy}`
+    : `Scores remain hidden until invites are locked.${requiredCopy}`;
 
   return (
     <SectionCollapse
@@ -1340,13 +1341,23 @@ const MessagesPanel = ({ messages, onSend, busy, participants, currentUser, expa
 };
 
 export default function App() {
-  const [user, setUser] = useState(() => {
+  const loadStoredUser = () => {
+    if (typeof window === "undefined") return null;
     try {
-      return JSON.parse(localStorage.getItem("bnd_user") || "null");
+      return JSON.parse(window.localStorage.getItem("bnd_user") || "null");
     } catch {
       return null;
     }
-  });
+  };
+
+  const loadStoredToken = () => {
+    if (typeof window === "undefined") return null;
+    const value = window.localStorage.getItem("bnd_token");
+    return value || null;
+  };
+
+  const [user, setUser] = useState(loadStoredUser);
+  const [authToken, setAuthTokenState] = useState(loadStoredToken);
   const [sessions, setSessions] = useState({ active: [], archived: [] });
   const [sessionsBusy, setSessionsBusy] = useState(false);
   const [creatingSession, setCreatingSession] = useState(false);
@@ -1375,6 +1386,25 @@ export default function App() {
   const notificationCountRef = useRef(0);
   const notificationsInitializedRef = useRef(false);
   const inviteMismatchRef = useRef(false);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (user) {
+      window.localStorage.setItem("bnd_user", JSON.stringify(user));
+    } else {
+      window.localStorage.removeItem("bnd_user");
+    }
+  }, [user]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (authToken) {
+      window.localStorage.setItem("bnd_token", authToken);
+    } else {
+      window.localStorage.removeItem("bnd_token");
+    }
+    api.setAuthToken(authToken);
+  }, [authToken]);
 
   const queryParams = useQueryParams();
   const initialResetToken = queryParams.resetToken || "";
@@ -1449,6 +1479,7 @@ export default function App() {
       }
       const firebaseUser = result.user;
       let backendUser = null;
+      let backendAuth = null;
       let idToken = null;
       if (typeof firebaseUser.getIdToken === "function") {
         idToken = await firebaseUser.getIdToken().catch(() => null);
@@ -1458,8 +1489,8 @@ export default function App() {
       }
       if (idToken && typeof api.googleLogin === "function") {
         try {
-          const res = await api.googleLogin({ idToken });
-          backendUser = res?.user ?? null;
+          backendAuth = await api.googleLogin({ idToken });
+          backendUser = backendAuth?.user ?? null;
         } catch (err) {
           console.error("Backend Google login failed", err);
         }
@@ -1476,11 +1507,11 @@ export default function App() {
         throw new Error("Google account is missing an email address");
       }
       setUser(resolved);
-      localStorage.setItem("bnd_user", JSON.stringify(resolved));
+      setAuthTokenState(backendAuth?.token || null);
       playToken("success");
       return resolved;
     },
-    [playToken, setUser],
+    [playToken],
   );
 
 
@@ -1553,7 +1584,7 @@ export default function App() {
     loadNotifications();
   }, [playToken, user]);
 
-  const refreshNotifications = async () => {
+  const refreshNotifications = useCallback(async () => {
     if (!user) return;
     try {
       const res = await api.fetchNotifications({ email: user.email });
@@ -1567,7 +1598,7 @@ export default function App() {
     } catch (err) {
       console.error(err);
     }
-  };
+  }, [playToken, user]);
 
   const markNotifications = async (ids) => {
     if (!user || !ids.length) return;
@@ -1588,7 +1619,7 @@ export default function App() {
     await markNotifications([id]);
   };
 
-  const loadSessions = async () => {
+  const loadSessions = useCallback(async () => {
     if (!user) return;
     setSessionsBusy(true);
     try {
@@ -1610,12 +1641,11 @@ export default function App() {
     } finally {
       setSessionsBusy(false);
     }
-  };
+  }, [activeSid, user]);
 
   useEffect(() => {
-    if (!user) return;
     loadSessions();
-  }, [user]);
+  }, [loadSessions]);
 
   useEffect(() => {
     const joinIfNeeded = async () => {
@@ -1642,9 +1672,9 @@ export default function App() {
       }
     };
     joinIfNeeded();
-  }, [user, pendingJoin]);
+  }, [loadSessions, pendingJoin, refreshNotifications, user]);
 
-  const hydrateSession = (payload) => {
+  const hydrateSession = useCallback((payload) => {
     const sessionData = {
       ...payload.session,
       nameFocus: payload.session?.nameFocus || "mix",
@@ -1721,21 +1751,24 @@ export default function App() {
     });
     setCompletedScores(completion);
     setScoreDrafts(mergedDrafts);
-  };
+  }, [user]);
 
-  const loadSession = async (sid) => {
-    if (!user || !sid) return;
-    setSessionBusy(true);
-    try {
-      const res = await api.getSession({ email: user.email, sid });
-      hydrateSession(res);
-    } catch (err) {
-      console.error("Failed to load session", err);
-      alert(err.message || "Unable to load session");
-    } finally {
-      setSessionBusy(false);
-    }
-  };
+  const loadSession = useCallback(
+    async (sid) => {
+      if (!user || !sid) return;
+      setSessionBusy(true);
+      try {
+        const res = await api.getSession({ email: user.email, sid });
+        hydrateSession(res);
+      } catch (err) {
+        console.error("Failed to load session", err);
+        alert(err.message || "Unable to load session");
+      } finally {
+        setSessionBusy(false);
+      }
+    },
+    [hydrateSession, user],
+  );
 
   useEffect(() => {
     if (!user || !activeSid) {
@@ -1747,7 +1780,7 @@ export default function App() {
       return;
     }
     loadSession(activeSid);
-  }, [user, activeSid]);
+  }, [activeSid, loadSession, user]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -2204,32 +2237,42 @@ export default function App() {
     }
   };
 
-  const handleSignOut = async ({ preservePending = false } = {}) => {
-    try {
-      await signOutFirebase().catch(() => {});
-    } finally {
-      setUser(null);
-      localStorage.removeItem("bnd_user");
-      setSessions({ active: [], archived: [] });
-      setActiveSid(null);
-      setSessionDoc(null);
-      setLists({});
-      setScores({});
-      setMessages([]);
-      setListDraft({ names: [], ranks: [], status: "draft", facts: {} });
-      setScoreDrafts({});
-      setCompletedScores({});
-      setNotifications([]);
-      if (!preservePending) {
-        setPendingJoin(null);
+  const handleSignOut = useCallback(
+    async ({ preservePending = false } = {}) => {
+      if (authToken) {
+        try {
+          await api.logout();
+        } catch (err) {
+          console.warn("Logout request failed", err);
+        }
       }
-      setCreateOpen(false);
-      notificationCountRef.current = 0;
-      notificationsInitializedRef.current = false;
-      setAmbientEnabled(false);
-      soundscapeRef.current?.toggleAmbient(false);
-    }
-  };
+      try {
+        await signOutFirebase().catch(() => {});
+      } finally {
+        setAuthTokenState(null);
+        setUser(null);
+        setSessions({ active: [], archived: [] });
+        setActiveSid(null);
+        setSessionDoc(null);
+        setLists({});
+        setScores({});
+        setMessages([]);
+        setListDraft({ names: [], ranks: [], status: "draft", facts: {} });
+        setScoreDrafts({});
+        setCompletedScores({});
+        setNotifications([]);
+        if (!preservePending) {
+          setPendingJoin(null);
+        }
+        setCreateOpen(false);
+        notificationCountRef.current = 0;
+        notificationsInitializedRef.current = false;
+        setAmbientEnabled(false);
+        soundscapeRef.current?.toggleAmbient(false);
+      }
+    },
+    [authToken],
+  );
 
   const handleSignInGoogle = async () => {
     if (typeof signInWithGooglePopup !== "function") {
@@ -2253,9 +2296,14 @@ export default function App() {
   const handleSignInEmail = async (email, password) => {
     try {
       const res = await api.login({ email, password });
-      const u = { uid: res.user.email, email: res.user.email, displayName: res.user.displayName };
+      const userPayload = res.user || { email, displayName: email };
+      const u = {
+        uid: userPayload.uid || userPayload.email,
+        email: userPayload.email,
+        displayName: userPayload.displayName || userPayload.email,
+      };
       setUser(u);
-      localStorage.setItem("bnd_user", JSON.stringify(u));
+      setAuthTokenState(res.token || null);
       playToken("success");
     } catch (err) {
       console.error(err);
@@ -2284,9 +2332,14 @@ export default function App() {
   const handleSignUp = async (email, password, fullName) => {
     try {
       const res = await api.signup({ fullName: fullName || "User", email, password });
-      const u = { uid: res.user.email, email: res.user.email, displayName: res.user.displayName };
+      const userPayload = res.user || { email, displayName: fullName || email };
+      const u = {
+        uid: userPayload.uid || userPayload.email,
+        email: userPayload.email,
+        displayName: userPayload.displayName || fullName || userPayload.email,
+      };
       setUser(u);
-      localStorage.setItem("bnd_user", JSON.stringify(u));
+      setAuthTokenState(res.token || null);
       playToken("success");
     } catch (err) {
       console.error(err);

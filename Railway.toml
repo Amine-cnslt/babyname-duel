@@ -4,3 +4,8 @@ dockerfilePath = "Dockerfile"
 
 [start]
 cmd = "python app.py"
+
+[variables]
+# Session token lifetime (hours) and maximum active tokens per user; adjust as needed.
+SESSION_TOKEN_TTL_HOURS = "24"
+MAX_SESSION_TOKENS_PER_USER = "10"

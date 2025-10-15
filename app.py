@@ -18,16 +18,18 @@ import base64
 import json
 import os
 import re
+import secrets
 import smtplib
 import ssl
 import time
 import logging
+import hashlib
 from datetime import datetime, timedelta
 from email.message import EmailMessage
 from typing import Optional
 from uuid import uuid4
 
-from flask import Flask, request, jsonify, send_from_directory
+from flask import Flask, request, jsonify, send_from_directory, g
 from flask_cors import CORS
 
 from sqlalchemy import (
@@ -82,6 +84,13 @@ SMTP_DEBUG = os.getenv("SMTP_DEBUG", "false").lower() in {"1", "true", "yes"}
 PASSWORD_RESET_URL_BASE = os.getenv("PASSWORD_RESET_URL_BASE")
 SENDGRID_API_KEY = os.getenv("SENDGRID_API_KEY")
 
+SESSION_TOKEN_TTL_HOURS = int(os.getenv("SESSION_TOKEN_TTL_HOURS", "24"))
+MAX_SESSION_TOKENS_PER_USER = int(os.getenv("MAX_SESSION_TOKENS_PER_USER", "10"))
+
+
+class AuthError(Exception):
+    """Raised when authentication fails or credentials are missing."""
+
 # ----------------------------------------------------------------------------
 # App & Config
 # ----------------------------------------------------------------------------
@@ -89,6 +98,13 @@ SENDGRID_API_KEY = os.getenv("SENDGRID_API_KEY")
 DIST_DIR = os.path.join(os.path.dirname(__file__), "dist")
 app = Flask(__name__, static_folder="dist", static_url_path="/")
 app.logger.setLevel(logging.INFO)
+
+
+@app.errorhandler(AuthError)
+def _auth_error_handler(exc: AuthError):
+    message = str(exc) if str(exc) else "Authentication required"
+    return jsonify({"ok": False, "error": message}), 401
+
 
 @app.route("/api/test", methods=["GET"])
 def test_api():
@@ -197,14 +213,8 @@ def ensure_schema(retries: int = 5, delay: float = 2.0):
                         conn.execute(sql_text('ALTER TABLE name_metadata ADD COLUMN audio_mime VARCHAR(64)'))
                 if not inspector.has_table('activity_logs'):
                     ActivityLog.__table__.create(bind=engine, checkfirst=True)
-            return
-        except OperationalError as exc:
-            attempt += 1
-            if attempt > 5:
-                raise
-            sleep_for = 2.0 * attempt
-            print(f"ensure_schema retry {attempt}/5 after OperationalError: {exc}. Sleeping {sleep_for}s")
-            time.sleep(sleep_for)
+                if not inspector.has_table('session_tokens'):
+                    SessionToken.__table__.create(bind=engine, checkfirst=True)
             return
         except OperationalError as exc:
             attempt += 1
@@ -259,6 +269,88 @@ def _isoformat(value):
     if isinstance(value, datetime):
         return value.replace(microsecond=0).isoformat() + "Z"
     return str(value)
+
+
+def _hash_token(token: str) -> str:
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def _extract_auth_token() -> Optional[str]:
+    auth_header = request.headers.get("Authorization", "")
+    if isinstance(auth_header, str):
+        scheme, _, candidate = auth_header.strip().partition(" ")
+        if scheme.lower() == "bearer" and candidate:
+            return candidate.strip()
+    cookie_token = request.cookies.get("bnd_session")
+    if cookie_token:
+        return cookie_token
+    return None
+
+
+def _prune_session_tokens(db, user_id: int):
+    if MAX_SESSION_TOKENS_PER_USER <= 0:
+        return
+    tokens = (
+        db.query(SessionToken)
+        .filter(SessionToken.user_id == user_id)
+        .order_by(SessionToken.created_at.desc())
+        .all()
+    )
+    if len(tokens) <= MAX_SESSION_TOKENS_PER_USER:
+        return
+    for stale in tokens[MAX_SESSION_TOKENS_PER_USER:]:
+        db.delete(stale)
+
+
+def _issue_session_token(db, user: User, *, ttl_hours: int = SESSION_TOKEN_TTL_HOURS) -> str:
+    ttl = max(ttl_hours, 1)
+    raw_token = secrets.token_hex(32)
+    token_hash = _hash_token(raw_token)
+    now = now_utc()
+    session_token = SessionToken(
+        user=user,
+        token_hash=token_hash,
+        created_at=now,
+        last_used_at=now,
+        expires_at=now + timedelta(hours=ttl),
+    )
+    db.add(session_token)
+    _prune_session_tokens(db, user.id)
+    return raw_token
+
+
+def _require_user(db) -> User:
+    token = _extract_auth_token()
+    if not token:
+        raise AuthError("Authentication required")
+    record = (
+        db.query(SessionToken)
+        .join(User)
+        .filter(SessionToken.token_hash == _hash_token(token))
+        .first()
+    )
+    if not record:
+        raise AuthError("Invalid or expired session")
+    if record.expires_at < now_utc():
+        db.delete(record)
+        raise AuthError("Session expired")
+    record.last_used_at = now_utc()
+    g.current_session_token = record
+    g.current_user = record.user
+    return record.user
+
+
+def _revoke_current_token(db):
+    session_token = getattr(g, "current_session_token", None)
+    if session_token is not None:
+        db.delete(session_token)
+
+
+def _user_payload(user: User) -> dict:
+    return {
+        "email": user.email,
+        "displayName": user.display_name,
+    }
 
 
 def _log_activity(db, *, actor: Optional[str], action: str, session_id: Optional[str] = None, details: Optional[dict] = None):
@@ -701,6 +793,11 @@ class User(Base):
     display_name = Column(String(120), nullable=True)
     password_hash = Column(String(255), nullable=False)
     created_at = Column(DateTime, default=now_utc, nullable=False)
+    session_tokens = relationship(
+        "SessionToken",
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
 
 class ResetToken(Base):
     __tablename__ = "reset_tokens"
@@ -712,6 +809,19 @@ class ResetToken(Base):
     created_at = Column(DateTime, default=now_utc, nullable=False)
 
     user = relationship("User")
+
+
+class SessionToken(Base):
+    __tablename__ = "session_tokens"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    token_hash = Column(String(64), nullable=False, unique=True)
+    created_at = Column(DateTime, default=now_utc, nullable=False)
+    expires_at = Column(DateTime, nullable=False)
+    last_used_at = Column(DateTime, default=now_utc, nullable=False)
+
+    user = relationship("User", back_populates="session_tokens")
 
 # ---------------- Models -----------------
 
@@ -1192,22 +1302,24 @@ def _serialize_session_doc(session: Session, members, *, include_tokens: bool):
 @app.route("/api/signup", methods=["POST"])
 def api_signup():
     db = SessionLocal()
-    data = request.get_json(force=True) or {}
-    full_name = (data.get("fullName") or "").strip()
-    email = (data.get("email") or "").strip().lower()
-    password = data.get("password") or ""
-
-    if not full_name or not email or not password:
-        return jsonify({"ok": False, "error": "Missing fields"}), 400
-    if not _is_valid_email(email):
-        return jsonify({"ok": False, "error": "Invalid email address"}), 400
-    if db.query(User).filter_by(email=email).first():
-        return jsonify({"ok": False, "error": "Email already exists"}), 409
-
-    hashed = generate_password_hash(password)
-    user = User(email=email, display_name=full_name, password_hash=hashed)
     try:
+        data = request.get_json(force=True) or {}
+        full_name = (data.get("fullName") or "").strip()
+        email = (data.get("email") or "").strip().lower()
+        password = data.get("password") or ""
+
+        if not full_name or not email or not password:
+            return jsonify({"ok": False, "error": "Missing fields"}), 400
+        if not _is_valid_email(email):
+            return jsonify({"ok": False, "error": "Invalid email address"}), 400
+        if db.query(User).filter_by(email=email).first():
+            return jsonify({"ok": False, "error": "Email already exists"}), 409
+
+        hashed = generate_password_hash(password)
+        user = User(email=email, display_name=full_name, password_hash=hashed)
         db.add(user)
+        db.flush()
+        token = _issue_session_token(db, user)
         _log_activity(
             db,
             actor=email,
@@ -1215,22 +1327,34 @@ def api_signup():
             details={"displayName": full_name},
         )
         db.commit()
+        payload = {
+            "ok": True,
+            "user": _user_payload(user),
+            "token": token,
+            "expiresIn": SESSION_TOKEN_TTL_HOURS * 3600,
+        }
+        response = jsonify(payload)
+        response.headers["Cache-Control"] = "no-store"
+        return response
     except Exception:
         db.rollback()
         raise
-    return jsonify({"ok": True, "user": {"email": email, "displayName": full_name}})
+    finally:
+        db.close()
 
 # --- Login endpoint (MySQL-backed) ---
 @app.route("/api/login", methods=["POST"])
 def api_login():
     db = SessionLocal()
-    data = request.get_json(force=True) or {}
-    email = (data.get("email") or "").strip().lower()
-    password = data.get("password") or ""
-    user = db.query(User).filter_by(email=email).first()
-    if not user or not check_password_hash(user.password_hash, password):
-        return jsonify({"ok": False, "error": "Invalid credentials"}), 401
     try:
+        data = request.get_json(force=True) or {}
+        email = (data.get("email") or "").strip().lower()
+        password = data.get("password") or ""
+        user = db.query(User).filter_by(email=email).first()
+        if not user or not check_password_hash(user.password_hash, password):
+            return jsonify({"ok": False, "error": "Invalid credentials"}), 401
+
+        token = _issue_session_token(db, user)
         _log_activity(
             db,
             actor=email,
@@ -1238,82 +1362,93 @@ def api_login():
             details={"method": "password"},
         )
         db.commit()
+        payload = {
+            "ok": True,
+            "user": _user_payload(user),
+            "token": token,
+            "expiresIn": SESSION_TOKEN_TTL_HOURS * 3600,
+        }
+        response = jsonify(payload)
+        response.headers["Cache-Control"] = "no-store"
+        return response
     except Exception:
         db.rollback()
         raise
-    return jsonify({"ok": True, "user": {"email": email, "displayName": user.display_name}})
+    finally:
+        db.close()
 
 
 # --- Google OAuth login endpoint ---
 @app.route("/api/google-login", methods=["POST"])
 def api_google_login():
     db = SessionLocal()
-    data = request.get_json(force=True) or {}
-    token = (data.get("idToken") or "").strip()
-    if not token:
-        return jsonify({"ok": False, "error": "idToken required"}), 400
-
-    if not GOOGLE_OAUTH_CLIENT_ID and not FIREBASE_PROJECT_ID:
-        return jsonify({"ok": False, "error": "Google login not configured"}), 503
-
-    verifier_errors = []
-    request_adapter = google_requests.Request()
-    id_info = None
-
-    if FIREBASE_PROJECT_ID:
-        try:
-            candidate = google_id_token.verify_firebase_token(
-                token,
-                request_adapter,
-                FIREBASE_PROJECT_ID,
-            )
-            issuer = candidate.get("iss")
-            expected_issuer = f"https://securetoken.google.com/{FIREBASE_PROJECT_ID}"
-            if issuer != expected_issuer:
-                raise ValueError(f"Unexpected issuer: {issuer}")
-            aud = candidate.get("aud")
-            if aud != FIREBASE_PROJECT_ID:
-                raise ValueError(f"Invalid audience: {aud}")
-            id_info = candidate
-        except ValueError as exc:
-            verifier_errors.append(("firebase", str(exc)))
-
-    if id_info is None and GOOGLE_OAUTH_CLIENT_ID:
-        try:
-            candidate = google_id_token.verify_oauth2_token(
-                token,
-                request_adapter,
-                GOOGLE_OAUTH_CLIENT_ID,
-            )
-            issuer = candidate.get("iss")
-            if issuer not in {"accounts.google.com", "https://accounts.google.com"}:
-                raise ValueError(f"Unexpected issuer: {issuer}")
-            aud = candidate.get("aud")
-            valid_audiences = {GOOGLE_OAUTH_CLIENT_ID}
-            if isinstance(aud, str):
-                aud_values = {aud}
-            else:
-                aud_values = set(aud or [])
-            if not aud_values & valid_audiences:
-                raise ValueError(f"Invalid audience: {aud}")
-            id_info = candidate
-        except ValueError as exc:
-            verifier_errors.append(("oauth", str(exc)))
-
-    if id_info is None:
-        print("Google token verification failed", verifier_errors)
-        return jsonify({"ok": False, "error": "Invalid Google token"}), 401
-
-    email = (id_info.get("email") or "").lower()
-    display_name = id_info.get("name") or id_info.get("email") or "Google user"
-    photo_url = id_info.get("picture")
-    email_verified = bool(id_info.get("email_verified", False))
-
-    if not email:
-        return jsonify({"ok": False, "error": "Google account missing email"}), 400
-
-    created = False
     try:
+        data = request.get_json(force=True) or {}
+        token = (data.get("idToken") or "").strip()
+        if not token:
+            return jsonify({"ok": False, "error": "idToken required"}), 400
+
+        if not GOOGLE_OAUTH_CLIENT_ID and not FIREBASE_PROJECT_ID:
+            return jsonify({"ok": False, "error": "Google login not configured"}), 503
+
+        verifier_errors = []
+        request_adapter = google_requests.Request()
+        id_info = None
+
+        if FIREBASE_PROJECT_ID:
+            try:
+                candidate = google_id_token.verify_firebase_token(
+                    token,
+                    request_adapter,
+                    FIREBASE_PROJECT_ID,
+                )
+                issuer = candidate.get("iss")
+                expected_issuer = f"https://securetoken.google.com/{FIREBASE_PROJECT_ID}"
+                if issuer != expected_issuer:
+                    raise ValueError(f"Unexpected issuer: {issuer}")
+                aud = candidate.get("aud")
+                if aud != FIREBASE_PROJECT_ID:
+                    raise ValueError(f"Invalid audience: {aud}")
+                id_info = candidate
+            except ValueError as exc:
+                verifier_errors.append(("firebase", str(exc)))
+
+        if id_info is None and GOOGLE_OAUTH_CLIENT_ID:
+            try:
+                candidate = google_id_token.verify_oauth2_token(
+                    token,
+                    request_adapter,
+                    GOOGLE_OAUTH_CLIENT_ID,
+                )
+                issuer = candidate.get("iss")
+                if issuer not in {"accounts.google.com", "https://accounts.google.com"}:
+                    raise ValueError(f"Unexpected issuer: {issuer}")
+                aud = candidate.get("aud")
+                valid_audiences = {GOOGLE_OAUTH_CLIENT_ID}
+                if isinstance(aud, str):
+                    aud_values = {aud}
+                else:
+                    aud_values = set(aud or [])
+                if not aud_values & valid_audiences:
+                    raise ValueError(f"Invalid audience: {aud}")
+                id_info = candidate
+            except ValueError as exc:
+                verifier_errors.append(("oauth", str(exc)))
+
+        if id_info is None:
+            print("Google token verification failed", verifier_errors)
+            return jsonify({"ok": False, "error": "Invalid Google token"}), 401
+
+        email = (id_info.get("email") or "").lower()
+        display_name = id_info.get("name") or id_info.get("email") or "Google user"
+        photo_url = id_info.get("picture")
+        email_verified = bool(id_info.get("email_verified", False))
+
+        if not email:
+            return jsonify({"ok": False, "error": "Google account missing email"}), 400
+
+        created = False
+
         user = db.query(User).filter_by(email=email).first()
         if not user:
             placeholder_password = generate_password_hash(_uuid())
@@ -1323,6 +1458,8 @@ def api_google_login():
         else:
             if display_name and user.display_name != display_name:
                 user.display_name = display_name
+        db.flush()
+        session_token = _issue_session_token(db, user)
         _log_activity(
             db,
             actor=user.email,
@@ -1330,23 +1467,48 @@ def api_google_login():
             details={"method": "google", "created": created},
         )
         db.commit()
+
+        payload_user = {
+            **_user_payload(user),
+            "uid": user.email,
+            "photoURL": photo_url,
+            "emailVerified": email_verified,
+            "provider": "google",
+            "created": created,
+        }
+        payload = {
+            "ok": True,
+            "user": payload_user,
+            "token": session_token,
+            "expiresIn": SESSION_TOKEN_TTL_HOURS * 3600,
+        }
+        response = jsonify(payload)
+        response.headers["Cache-Control"] = "no-store"
+        return response
     except Exception as exc:
         db.rollback()
         print("Failed to persist Google user", exc)
         return jsonify({"ok": False, "error": "Unable to persist user"}), 500
+    finally:
+        db.close()
 
-    return jsonify({
-        "ok": True,
-        "user": {
-            "email": user.email,
-            "displayName": user.display_name or display_name or user.email,
-            "uid": user.email,
-            "photoURL": photo_url,
-            "emailVerified": email_verified,
-        "provider": "google",
-        "created": created,
-    },
-    })
+
+@app.route("/api/logout", methods=["POST"])
+def api_logout():
+    db = SessionLocal()
+    try:
+        _require_user(db)
+        _revoke_current_token(db)
+        db.commit()
+        response = jsonify({"ok": True})
+        response.delete_cookie("bnd_session")
+        response.headers["Cache-Control"] = "no-store"
+        return response
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
 
 
 # --- Session APIs ---
@@ -1358,8 +1520,12 @@ def _ensure_member(db, session_id: str, uid: str):
 def api_create_session():
     db = SessionLocal()
     try:
+        user = _require_user(db)
         data = request.get_json(force=True) or {}
-        email = _normalize_email(data.get("email"))
+        request_email = _normalize_email(data.get("email"))
+        email = _normalize_email(user.email)
+        if request_email and request_email != email:
+            return jsonify({"ok": False, "error": "Authenticated email mismatch"}), 403
         title = (data.get("title") or "Untitled session").strip()[:200]
         required_names = data.get("requiredNames") or data.get("maxNames") or 10
         name_focus = (data.get("nameFocus") or "mix").strip().lower()
@@ -1491,12 +1657,15 @@ def api_create_session():
 
 @app.route("/api/sessions", methods=["GET"])
 def api_list_sessions():
-    email = _normalize_email(request.args.get("email"))
-    if not email:
-        return jsonify({"ok": False, "error": "email query param required"}), 400
-
     db = SessionLocal()
     try:
+        user = _require_user(db)
+        request_email = _normalize_email(request.args.get("email"))
+        email = _normalize_email(user.email)
+        if request_email and request_email != email:
+            return jsonify({"ok": False, "error": "Authenticated email mismatch"}), 403
+        if not email:
+            return jsonify({"ok": False, "error": "Authenticated user missing email"}), 400
         memberships = (
             db.query(Session, Member)
             .join(Member, Member.session_id == Session.id)
@@ -1557,12 +1726,18 @@ def api_list_sessions():
 
 @app.route("/api/sessions/<sid>", methods=["GET"])
 def api_get_session(sid):
-    email = _normalize_email(request.args.get("email"))
     if not sid:
         return jsonify({"ok": False, "error": "Session id required"}), 400
 
     db = SessionLocal()
     try:
+        user = _require_user(db)
+        request_email = _normalize_email(request.args.get("email"))
+        email = _normalize_email(user.email)
+        if request_email and request_email != email:
+            return jsonify({"ok": False, "error": "Authenticated email mismatch"}), 403
+        if not email:
+            return jsonify({"ok": False, "error": "Authenticated user missing email"}), 400
         session = db.query(Session).filter_by(id=sid).first()
         if not session:
             return jsonify({"ok": False, "error": "Session not found"}), 404
@@ -1706,8 +1881,12 @@ def api_get_session(sid):
 def api_join_session():
     db = SessionLocal()
     try:
+        user = _require_user(db)
         data = request.get_json(force=True) or {}
-        email = _normalize_email(data.get("email"))
+        request_email = _normalize_email(data.get("email"))
+        email = _normalize_email(user.email)
+        if request_email and request_email != email:
+            return jsonify({"ok": False, "error": "Authenticated email mismatch"}), 403
         token = (data.get("token") or "").strip()
 
         if not email or not _is_valid_email(email):
@@ -1787,8 +1966,12 @@ def api_join_session():
 def api_add_participants(sid):
     db = SessionLocal()
     try:
+        user = _require_user(db)
         data = request.get_json(force=True) or {}
-        owner_email = _normalize_email(data.get("email"))
+        request_email = _normalize_email(data.get("email"))
+        owner_email = _normalize_email(user.email)
+        if request_email and request_email != owner_email:
+            return jsonify({"ok": False, "error": "Authenticated email mismatch"}), 403
         participants = data.get("participants") or data.get("invites") or []
 
         if not owner_email or not _is_valid_email(owner_email):
@@ -1854,8 +2037,12 @@ def api_add_participants(sid):
 def api_remove_participant(sid):
     db = SessionLocal()
     try:
+        user = _require_user(db)
         data = request.get_json(force=True) or {}
-        owner_email = _normalize_email(data.get("email"))
+        request_email = _normalize_email(data.get("email"))
+        owner_email = _normalize_email(user.email)
+        if request_email and request_email != owner_email:
+            return jsonify({"ok": False, "error": "Authenticated email mismatch"}), 403
         target_email = _normalize_email(data.get("participantEmail"))
 
         if not owner_email or not _is_valid_email(owner_email):
@@ -1923,8 +2110,12 @@ def api_remove_participant(sid):
 def api_lock_invites(sid):
     db = SessionLocal()
     try:
+        user = _require_user(db)
         data = request.get_json(force=True) or {}
-        email = _normalize_email(data.get("email"))
+        request_email = _normalize_email(data.get("email"))
+        email = _normalize_email(user.email)
+        if request_email and request_email != email:
+            return jsonify({"ok": False, "error": "Authenticated email mismatch"}), 403
         if not email or not _is_valid_email(email):
             return jsonify({"ok": False, "error": "Valid email required"}), 400
 
@@ -1965,8 +2156,12 @@ def api_lock_invites(sid):
 def api_upsert_list(sid):
     db = SessionLocal()
     try:
+        user = _require_user(db)
         data = request.get_json(force=True) or {}
-        email = _normalize_email(data.get("email"))
+        request_email = _normalize_email(data.get("email"))
+        email = _normalize_email(user.email)
+        if request_email and request_email != email:
+            return jsonify({"ok": False, "error": "Authenticated email mismatch"}), 403
         names = data.get("names") or []
         self_ranks = data.get("selfRanks") or {}
         finalize = bool(data.get("finalize"))
@@ -2109,8 +2304,12 @@ def api_upsert_list(sid):
 def api_submit_score(sid):
     db = SessionLocal()
     try:
+        user = _require_user(db)
         data = request.get_json(force=True) or {}
-        email = _normalize_email(data.get("email"))
+        request_email = _normalize_email(data.get("email"))
+        email = _normalize_email(user.email)
+        if request_email and request_email != email:
+            return jsonify({"ok": False, "error": "Authenticated email mismatch"}), 403
         list_owner_uid = _normalize_email(data.get("listOwnerUid"))
         name = (data.get("name") or "").strip()
         score_value = data.get("scoreValue")
@@ -2222,12 +2421,15 @@ def api_submit_score(sid):
 
 @app.route("/api/sessions/<sid>/messages", methods=["GET"])
 def api_list_messages(sid):
-    email = _normalize_email(request.args.get("email"))
-    if not email:
-        return jsonify({"ok": False, "error": "Email required"}), 400
-
     db = SessionLocal()
     try:
+        user = _require_user(db)
+        request_email = _normalize_email(request.args.get("email"))
+        email = _normalize_email(user.email)
+        if request_email and request_email != email:
+            return jsonify({"ok": False, "error": "Authenticated email mismatch"}), 403
+        if not email:
+            return jsonify({"ok": False, "error": "Authenticated user missing email"}), 400
         session = db.query(Session).filter_by(id=sid).first()
         if not session:
             return jsonify({"ok": False, "error": "Session not found"}), 404
@@ -2263,8 +2465,12 @@ def api_list_messages(sid):
 def api_send_message(sid):
     db = SessionLocal()
     try:
+        user = _require_user(db)
         data = request.get_json(force=True) or {}
-        sender = _normalize_email(data.get("email"))
+        request_email = _normalize_email(data.get("email"))
+        sender = _normalize_email(user.email)
+        if request_email and request_email != sender:
+            return jsonify({"ok": False, "error": "Authenticated email mismatch"}), 403
         recipient = data.get("recipient")
         if isinstance(recipient, str):
             recipient = _normalize_email(recipient)
@@ -2361,8 +2567,12 @@ def api_send_message(sid):
 def api_archive_session(sid):
     db = SessionLocal()
     try:
+        user = _require_user(db)
         data = request.get_json(force=True) or {}
-        email = _normalize_email(data.get("email"))
+        request_email = _normalize_email(data.get("email"))
+        email = _normalize_email(user.email)
+        if request_email and request_email != email:
+            return jsonify({"ok": False, "error": "Authenticated email mismatch"}), 403
 
         if not email or not _is_valid_email(email):
             return jsonify({"ok": False, "error": "Valid email required"}), 400
@@ -2399,8 +2609,12 @@ def api_archive_session(sid):
 def api_delete_session(sid):
     db = SessionLocal()
     try:
+        user = _require_user(db)
         data = request.get_json(force=True) or {}
-        email = _normalize_email(data.get("email"))
+        request_email = _normalize_email(data.get("email"))
+        email = _normalize_email(user.email)
+        if request_email and request_email != email:
+            return jsonify({"ok": False, "error": "Authenticated email mismatch"}), 403
 
         if not email or not _is_valid_email(email):
             return jsonify({"ok": False, "error": "Valid email required"}), 400
@@ -2540,6 +2754,7 @@ def api_reset_password():
     try:
         user.password_hash = hashed
         db.delete(reset)  # One-time use
+        db.query(SessionToken).filter_by(user_id=user.id).delete(synchronize_session=False)
         _log_activity(
             db,
             actor=user.email,
@@ -2555,12 +2770,15 @@ def api_reset_password():
 
 @app.route("/api/notifications", methods=["GET"])
 def api_notifications():
-    email = _normalize_email(request.args.get("email"))
-    if not email:
-        return jsonify({"ok": False, "error": "email query param required"}), 400
-
     db = SessionLocal()
     try:
+        user = _require_user(db)
+        request_email = _normalize_email(request.args.get("email"))
+        email = _normalize_email(user.email)
+        if request_email and request_email != email:
+            return jsonify({"ok": False, "error": "Authenticated email mismatch"}), 403
+        if not email:
+            return jsonify({"ok": False, "error": "Authenticated user missing email"}), 400
         rows = (
             db.query(Notification)
             .filter(
@@ -2583,8 +2801,12 @@ def api_notifications():
 def api_notifications_mark_read():
     db = SessionLocal()
     try:
+        user = _require_user(db)
         data = request.get_json(force=True) or {}
-        email = _normalize_email(data.get("email"))
+        request_email = _normalize_email(data.get("email"))
+        email = _normalize_email(user.email)
+        if request_email and request_email != email:
+            return jsonify({"ok": False, "error": "Authenticated email mismatch"}), 403
         ids = data.get("ids") or []
 
         if not email:

@@ -1,4 +1,18 @@
 
+def signup_user(client, email, *, password="Secret123", full_name="Tester"):
+    resp = client.post(
+        "/api/signup",
+        json={"fullName": full_name, "email": email, "password": password},
+    )
+    assert resp.status_code == 200, resp.get_data(as_text=True)
+    data = resp.get_json()
+    return data["token"], data["user"]
+
+
+def auth_headers(token):
+    return {"Authorization": f"Bearer {token}"}
+
+
 def test_api_endpoint_returns_success(client):
     response = client.get("/api/test")
     assert response.status_code == 200
@@ -10,8 +24,10 @@ def test_invite_info_endpoint_returns_session_metadata(client, monkeypatch):
 
     owner_email = "owner@example.com"
     invite_email = "invitee@example.com"
+    owner_token, _ = signup_user(client, owner_email, full_name="Owner")
     create_resp = client.post(
         "/api/sessions",
+        headers=auth_headers(owner_token),
         json={
             "email": owner_email,
             "title": "Invite info",
@@ -24,12 +40,14 @@ def test_invite_info_endpoint_returns_session_metadata(client, monkeypatch):
     sid = payload["sid"]
     template_resp = client.post(
         f"/api/sessions/{sid}/lists",
+        headers=auth_headers(owner_token),
         json={"email": owner_email, "names": [], "selfRanks": {}, "slotCount": 12},
     )
     assert template_resp.status_code == 200
 
     invite_resp = client.post(
         f"/api/sessions/{sid}/participants",
+        headers=auth_headers(owner_token),
         json={"email": owner_email, "participants": [invite_email]},
     )
     assert invite_resp.status_code == 200
@@ -116,8 +134,10 @@ def test_inviting_new_participant_sends_email_and_tracks_pending_invite(client, 
 
     owner_email = "owner@example.com"
     invitee_email = "guest@example.com"
+    owner_token, _ = signup_user(client, owner_email, full_name="Owner")
     response = client.post(
         "/api/sessions",
+        headers=auth_headers(owner_token),
         json={
             "email": owner_email,
             "title": "Family picks",
@@ -130,12 +150,14 @@ def test_inviting_new_participant_sends_email_and_tracks_pending_invite(client, 
 
     template_resp = client.post(
         f"/api/sessions/{sid}/lists",
+        headers=auth_headers(owner_token),
         json={"email": owner_email, "names": [], "selfRanks": {}, "slotCount": 8},
     )
     assert template_resp.status_code == 200
 
     invite_resp = client.post(
         f"/api/sessions/{sid}/participants",
+        headers=auth_headers(owner_token),
         json={"email": owner_email, "participants": [invitee_email]},
     )
     assert invite_resp.status_code == 200
@@ -163,7 +185,10 @@ def test_inviting_new_participant_sends_email_and_tracks_pending_invite(client, 
     finally:
         db.close()
 
-    session_response = client.get(f"/api/sessions/{sid}?email={owner_email}")
+    session_response = client.get(
+        f"/api/sessions/{sid}?email={owner_email}",
+        headers=auth_headers(owner_token),
+    )
     assert session_response.status_code == 200
     session_payload = session_response.get_json()
     pending = session_payload["session"].get("pendingInvites") or []
@@ -185,14 +210,12 @@ def test_inviting_existing_user_sends_notification_email(client, monkeypatch):
     participant_email = "participant@example.com"
     owner_email = "owner@example.com"
 
-    signup_resp = client.post(
-        "/api/signup",
-        json={"fullName": "Participant", "email": participant_email, "password": "Secret123"},
-    )
-    assert signup_resp.status_code == 200
+    signup_user(client, participant_email, full_name="Participant")
+    owner_token, _ = signup_user(client, owner_email, full_name="Owner")
 
     session_resp = client.post(
         "/api/sessions",
+        headers=auth_headers(owner_token),
         json={"email": owner_email, "title": "Test session", "requiredNames": 8, "nameFocus": "mix"},
     )
     assert session_resp.status_code == 200
@@ -200,6 +223,7 @@ def test_inviting_existing_user_sends_notification_email(client, monkeypatch):
 
     template_resp = client.post(
         f"/api/sessions/{sid}/lists",
+        headers=auth_headers(owner_token),
         json={"email": owner_email, "names": [], "selfRanks": {}, "slotCount": 8},
     )
     assert template_resp.status_code == 200
@@ -207,6 +231,7 @@ def test_inviting_existing_user_sends_notification_email(client, monkeypatch):
     sent_messages.clear()
     invite_resp = client.post(
         f"/api/sessions/{sid}/participants",
+        headers=auth_headers(owner_token),
         json={"email": owner_email, "participants": [participant_email]},
     )
     assert invite_resp.status_code == 200
@@ -231,7 +256,10 @@ def test_inviting_existing_user_sends_notification_email(client, monkeypatch):
     finally:
         db.close()
 
-    session_view = client.get(f"/api/sessions/{sid}?email={owner_email}")
+    session_view = client.get(
+        f"/api/sessions/{sid}?email={owner_email}",
+        headers=auth_headers(owner_token),
+    )
     assert session_view.status_code == 200
     session_doc = session_view.get_json()["session"]
     assert participant_email in session_doc["participantIds"]
@@ -243,9 +271,11 @@ def test_joined_participant_receives_required_names_metadata(client, monkeypatch
 
     owner_email = "owner@example.com"
     joiner_email = "joiner@example.com"
+    owner_token, _ = signup_user(client, owner_email, full_name="Owner")
 
     create_resp = client.post(
         "/api/sessions",
+        headers=auth_headers(owner_token),
         json={
             "email": owner_email,
             "title": "Metadata session",
@@ -258,29 +288,32 @@ def test_joined_participant_receives_required_names_metadata(client, monkeypatch
 
     template_resp = client.post(
         f"/api/sessions/{sid}/lists",
+        headers=auth_headers(owner_token),
         json={"email": owner_email, "names": [], "selfRanks": {}, "slotCount": 16},
     )
     assert template_resp.status_code == 200
 
     invite_resp = client.post(
         f"/api/sessions/{sid}/participants",
+        headers=auth_headers(owner_token),
         json={"email": owner_email, "participants": [joiner_email]},
     )
     assert invite_resp.status_code == 200
     token = invite_resp.get_json()["results"][0]["link"].split("token=")[-1]
 
     # Join the session
-    client.post(
-        "/api/signup",
-        json={"fullName": "Joiner", "email": joiner_email, "password": "Secret123"},
-    )
+    joiner_token, _ = signup_user(client, joiner_email, full_name="Joiner")
     join_resp = client.post(
         "/api/sessions/join",
+        headers=auth_headers(joiner_token),
         json={"email": joiner_email, "token": token, "sid": sid},
     )
     assert join_resp.status_code == 200
 
-    session_resp = client.get(f"/api/sessions/{sid}?email={joiner_email}")
+    session_resp = client.get(
+        f"/api/sessions/{sid}?email={joiner_email}",
+        headers=auth_headers(joiner_token),
+    )
     assert session_resp.status_code == 200
     session_doc = session_resp.get_json()["session"]
     assert session_doc["requiredNames"] == 16
@@ -290,8 +323,10 @@ def test_joined_participant_receives_required_names_metadata(client, monkeypatch
 def test_inviting_before_template_ready_is_blocked(client):
     owner_email = "owner@example.com"
     invite_email = "friend@example.com"
+    owner_token, _ = signup_user(client, owner_email, full_name="Owner")
     create_resp = client.post(
         "/api/sessions",
+        headers=auth_headers(owner_token),
         json={"email": owner_email, "title": "Blocked", "requiredNames": 8, "nameFocus": "mix"},
     )
     assert create_resp.status_code == 200
@@ -299,6 +334,7 @@ def test_inviting_before_template_ready_is_blocked(client):
 
     invite_resp = client.post(
         f"/api/sessions/{sid}/participants",
+        headers=auth_headers(owner_token),
         json={"email": owner_email, "participants": [invite_email]},
     )
     assert invite_resp.status_code == 409
