@@ -1548,14 +1548,6 @@ def api_create_session():
         if name_focus not in {"girl", "boy", "mix"}:
             name_focus = "mix"
 
-        existing_title = (
-            db.query(Session)
-            .filter(func.lower(Session.title) == title.lower())
-            .first()
-        )
-        if existing_title:
-            return jsonify({"ok": False, "error": "Session name already in use"}), 409
-
         sid = _uuid()
         owner_token = _uuid()
         voter_token = _uuid()
