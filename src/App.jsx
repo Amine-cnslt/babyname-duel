@@ -1074,6 +1074,36 @@ const OtherListsPanel = ({
 };
 
 const ResultsPanel = ({ lists, scores, requiredNames, invitesLocked, onTopTieChange, expanded, onToggle }) => {
+  const [celebrateKey, setCelebrateKey] = useState(null);
+  const [showConfetti, setShowConfetti] = useState(false);
+  const [showBanner, setShowBanner] = useState(false);
+
+  const ConfettiOverlay = ({ seed = 72 }) => {
+    const pieces = Array.from({ length: Math.min(Math.max(seed, 24), 140) }, (_, idx) => idx);
+    return (
+      <div className="bnd-confetti">
+        {pieces.map((i) => {
+          const left = Math.random() * 100;
+          const duration = 1600 + Math.random() * 1600;
+          const delay = Math.random() * 200;
+          const drift = (Math.random() - 0.5) * 160;
+          const hue = Math.floor(200 + Math.random() * 140);
+          const sat = 75 + Math.random() * 20;
+          const light = 50 + Math.random() * 10;
+          const color = `hsl(${hue} ${sat}% ${light}%)`;
+          const style = {
+            left: `${left}%`,
+            '--x': `${left}%`,
+            '--drift': `${drift}px`,
+            background: color,
+            animationDuration: `${duration}ms`,
+            animationDelay: `${delay}ms`,
+          };
+          return <i key={i} style={style} />;
+        })}
+      </div>
+    );
+  };
   const aggregated = useMemo(() => {
     if (!invitesLocked || !lists) {
       return { ranking: [], topNames: [] };
@@ -1128,6 +1158,22 @@ const ResultsPanel = ({ lists, scores, requiredNames, invitesLocked, onTopTieCha
 
   const topTie = aggregated.topNames.length > 1;
   const winnerNames = aggregated.topNames.map((row) => row.name);
+  const winnerSignature = invitesLocked && !topTie && winnerNames[0] ? `${winnerNames[0]}:${aggregated.topNames[0].total}` : null;
+
+  useEffect(() => {
+    if (!expanded) return;
+    if (winnerSignature && celebrateKey !== winnerSignature) {
+      setCelebrateKey(winnerSignature);
+      setShowConfetti(true);
+      setShowBanner(true);
+      const t1 = setTimeout(() => setShowConfetti(false), 2400);
+      const t2 = setTimeout(() => setShowBanner(false), 3600);
+      return () => {
+        clearTimeout(t1);
+        clearTimeout(t2);
+      };
+    }
+  }, [expanded, winnerSignature, celebrateKey]);
   const winnerTotal = aggregated.topNames.length ? aggregated.topNames[0].total : null;
 
   useEffect(() => {
@@ -1145,6 +1191,23 @@ const ResultsPanel = ({ lists, scores, requiredNames, invitesLocked, onTopTieCha
     } else if (aggregated.ranking.length) {
       bodyContent = (
         <div className="space-y-3">
+          {showBanner && !topTie && winnerNames[0] ? (
+            <div className="bnd-winner-banner">
+              <span className="bnd-winner-float text-xs font-semibold text-amber-700">Winner</span>
+              <span
+                className="bnd-winner-float text-lg font-extrabold"
+                style={{
+                  background: 'linear-gradient(90deg, #f59e0b, #ef4444, #3b82f6)',
+                  WebkitBackgroundClip: 'text',
+                  color: 'transparent',
+                  fontFamily: 'ui-rounded, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif',
+                }}
+              >
+                {winnerNames[0]}
+              </span>
+              <span className="text-xs text-slate-600">is leading the board</span>
+            </div>
+          ) : null}
           <div
             className={`rounded-lg border px-3 py-3 text-sm ${
               topTie ? "border-amber-200 bg-amber-50 text-amber-700" : "border-emerald-200 bg-emerald-50 text-emerald-700"
@@ -1203,6 +1266,7 @@ const ResultsPanel = ({ lists, scores, requiredNames, invitesLocked, onTopTieCha
       onToggle={onToggle}
     >
       <div className="text-xs text-slate-500">{statusCopy}</div>
+      {showConfetti ? <ConfettiOverlay seed={88} /> : null}
       {bodyContent}
     </SectionCollapse>
   );

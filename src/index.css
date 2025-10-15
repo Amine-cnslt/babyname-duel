@@ -167,3 +167,45 @@ body {
   40% { transform: rotate(6deg) scale(1.04); }
   70% { transform: rotate(-5deg) scale(0.98); }
 }
+
+/* Winner celebration */
+.bnd-confetti {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 50;
+}
+.bnd-confetti > i {
+  position: absolute;
+  width: 8px;
+  height: 14px;
+  border-radius: 2px;
+  opacity: 0.9;
+  animation: bnd-confetti-fall linear forwards;
+}
+@keyframes bnd-confetti-fall {
+  0% { transform: translate3d(var(--x,0), -10%, 0) rotate(0deg); opacity: 1; }
+  80% { opacity: 0.95; }
+  100% { transform: translate3d(calc(var(--x,0) + var(--drift, 0px)), 110%, 0) rotate(360deg); opacity: 0; }
+}
+
+.bnd-winner-banner {
+  position: sticky;
+  top: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: linear-gradient(90deg, rgba(251,191,36,0.2), rgba(59,130,246,0.18));
+  border: 1px solid rgba(251,191,36,0.35);
+}
+.bnd-winner-float {
+  display: inline-block;
+  animation: bnd-winner-float 2.2s ease-in-out infinite;
+}
+@keyframes bnd-winner-float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-6px); }
+}
