@@ -1529,8 +1529,6 @@ def api_create_session():
         title = (data.get("title") or "Untitled session").strip()[:200]
         required_names = data.get("requiredNames") or data.get("maxNames") or 10
         name_focus = (data.get("nameFocus") or "mix").strip().lower()
-        invites_raw = data.get("invites") or []
-
         if not email or not _is_valid_email(email):
             return jsonify({"ok": False, "error": "Valid email required"}), 400
         try:
@@ -1558,27 +1556,6 @@ def api_create_session():
         if existing_title:
             return jsonify({"ok": False, "error": "Session name already in use"}), 409
 
-        seen_invite_emails = set()
-        cleaned_invites = []
-        for raw in invites_raw:
-            invite_email = None
-            if isinstance(raw, dict):
-                invite_email = _normalize_email(raw.get("email"))
-            else:
-                invite_email = _normalize_email(raw)
-            if not invite_email or invite_email == email:
-                continue
-            if not _is_valid_email(invite_email):
-                return jsonify({"ok": False, "error": f"Invalid invite email: {invite_email}"}), 400
-            if invite_email in seen_invite_emails:
-                return jsonify({"ok": False, "error": f"Duplicate invite: {invite_email}"}), 400
-            seen_invite_emails.add(invite_email)
-            role = _session_member_role(raw.get("role") if isinstance(raw, dict) else None)
-            cleaned_invites.append({"email": invite_email, "role": role})
-
-        if cleaned_invites:
-            return jsonify({"ok": False, "error": "Create your list template before inviting participants."}), 409
-
         sid = _uuid()
         owner_token = _uuid()
         voter_token = _uuid()
@@ -1603,7 +1580,6 @@ def api_create_session():
             db.add(member)
             db.add(owner_state)
             db.flush()
-            invite_payload = []
             _log_activity(
                 db,
                 actor=email,
@@ -1613,7 +1589,7 @@ def api_create_session():
                     "title": session.title,
                     "requiredNames": required_names,
                     "nameFocus": name_focus,
-                    "invitedCount": len(invite_payload),
+                    "invitedCount": 0,
                 },
             )
             db.commit()
@@ -1633,7 +1609,6 @@ def api_create_session():
         payload.update({
             "inviteOwnerToken": owner_token,
             "inviteVoterToken": voter_token,
-            "invites": invite_payload,
             "requiredNames": required_names,
             "nameFocus": name_focus,
             "ownerIds": [email],

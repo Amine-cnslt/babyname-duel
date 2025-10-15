@@ -583,7 +583,6 @@ const CreateSessionModal = ({ open, busy, onClose, onCreate }) => {
   const [title, setTitle] = useState("");
   const [requiredNames, setRequiredNames] = useState(10);
   const [nameFocus, setNameFocus] = useState("mix");
-  const [invites, setInvites] = useState([""]);
   const requiredOptions = useMemo(() => buildRequiredNameOptions(nameFocus), [nameFocus]);
 
   useEffect(() => {
@@ -591,7 +590,6 @@ const CreateSessionModal = ({ open, busy, onClose, onCreate }) => {
       setTitle("");
       setRequiredNames(10);
       setNameFocus("mix");
-      setInvites([""]);
     }
   }, [open]);
 
@@ -606,27 +604,7 @@ const CreateSessionModal = ({ open, busy, onClose, onCreate }) => {
   const handleSubmit = async (event) => {
     event.preventDefault();
     if (!title.trim()) return;
-    const cleanedInvites = invites
-      .map((value) => value.trim())
-      .filter((value, index, array) => value && array.indexOf(value) === index)
-      .map((email) => ({ email }));
-    await onCreate({ title: title.trim(), requiredNames, nameFocus, invites: cleanedInvites });
-  };
-
-  const updateInvite = (index, value) => {
-    setInvites((prev) => {
-      const next = [...prev];
-      next[index] = value;
-      return next;
-    });
-  };
-
-  const addInviteField = () => {
-    setInvites((prev) => [...prev, ""]);
-  };
-
-  const removeInviteField = (index) => {
-    setInvites((prev) => (prev.length === 1 ? [""] : prev.filter((_, i) => i !== index)));
+    await onCreate({ title: title.trim(), requiredNames, nameFocus });
   };
 
   return (
@@ -635,7 +613,9 @@ const CreateSessionModal = ({ open, busy, onClose, onCreate }) => {
         <div className="mb-4 flex items-center justify-between">
           <div>
             <div className="text-lg font-semibold text-slate-800">Create session</div>
-            <div className="text-xs text-slate-500">Set the session details and add participants.</div>
+            <div className="text-xs text-slate-500">
+              Set the session details; you can invite collaborators after the list template is ready.
+            </div>
           </div>
           <Button variant="subtle" onClick={onClose} disabled={busy}>
             Close
@@ -681,40 +661,6 @@ const CreateSessionModal = ({ open, busy, onClose, onCreate }) => {
               ))}
             </select>
             <p className="mt-1 text-xs text-slate-500">{nameFocus === "mix" ? "Mix sessions use multiples of four so everyone can share evenly." : "Single-focus sessions use even numbers so rankings stay balanced."}</p>
-          </div>
-          <div>
-            <div className="flex items-center justify-between">
-              <label className="text-xs font-semibold text-slate-600">Invite participants</label>
-              <button
-                type="button"
-                className="text-xs font-medium text-indigo-600 hover:underline"
-                onClick={addInviteField}
-                disabled={busy}
-              >
-                Add participant
-              </button>
-            </div>
-            <div className="mt-2 space-y-2">
-              {invites.map((value, index) => (
-                <div key={index} className="flex items-center gap-2">
-                  <input
-                    className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                    placeholder="participant@example.com"
-                    value={value}
-                    onChange={(e) => updateInvite(index, e.target.value)}
-                    disabled={busy}
-                  />
-                  <button
-                    type="button"
-                    className="rounded-lg border border-slate-200 px-2 py-1 text-xs text-slate-500 hover:bg-slate-100"
-                    onClick={() => removeInviteField(index)}
-                    disabled={busy}
-                  >
-                    Remove
-                  </button>
-                </div>
-              ))}
-            </div>
           </div>
           <div className="flex justify-end gap-2">
             <Button type="button" variant="subtle" onClick={onClose} disabled={busy}>
@@ -1827,11 +1773,11 @@ export default function App() {
     [persistPanelState],
   );
 
-  const handleCreateSession = async ({ title, requiredNames, nameFocus, invites }) => {
+  const handleCreateSession = async ({ title, requiredNames, nameFocus }) => {
     if (!user) return;
     setCreatingSession(true);
     try {
-      const res = await api.createSession({ email: user.email, title, requiredNames, nameFocus, invites });
+      const res = await api.createSession({ email: user.email, title, requiredNames, nameFocus });
       await loadSessions();
       await refreshNotifications();
       if (res?.session?.sid) {

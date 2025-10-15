@@ -83,8 +83,8 @@ export async function resetPassword({ token, newPassword }) {
   });
 }
 
-export async function createSession({ title, requiredNames, nameFocus, invites, email }) {
-  const payload = { title, requiredNames, nameFocus, invites };
+export async function createSession({ title, requiredNames, nameFocus, email }) {
+  const payload = { title, requiredNames, nameFocus };
   if (email) payload.email = email;
   return request("/api/sessions", {
     method: "POST",
