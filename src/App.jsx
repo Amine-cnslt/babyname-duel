@@ -177,7 +177,7 @@ const FactButton = ({ fact }) => {
           className="fixed z-[2147483647] w-56 max-w-[min(90vw,224px)] rounded-lg border border-slate-200 bg-white p-3 text-left text-xs shadow-2xl"
           style={{ top: position.top, left: position.left, transform: "translate(-50%, 0)" }}
         >
-          <div className="font-semibold text-slate-700">Name insight</div>
+          <div className="font-semibold text-slate-700">Name details</div>
           <div className="mt-1 whitespace-pre-line text-slate-600">
             {fact.info || "No description available yet."}
           </div>
@@ -539,11 +539,11 @@ const SessionsDashboard = ({ sessions, activeSid, onSelect, onOpenCreate, loadin
             <span role="img" aria-hidden="true">🍼</span>
             Sessions
           </div>
-          <div className="text-xs text-slate-500">Switch between active and archived duels.</div>
+          <div className="text-xs text-slate-500">Switch between active and archived sessions.</div>
         </div>
         <Button variant="primary" onClick={onOpenCreate} disabled={loading}>
           <PlusCircle className="h-4 w-4" />
-          New session
+          New Session
         </Button>
       </div>
       <div className="mt-5 flex border-b border-slate-200 px-5">
@@ -612,10 +612,8 @@ const CreateSessionModal = ({ open, busy, onClose, onCreate }) => {
       <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
         <div className="mb-4 flex items-center justify-between">
           <div>
-            <div className="text-lg font-semibold text-slate-800">Create session</div>
-            <div className="text-xs text-slate-500">
-              Set the session details; you can invite collaborators after the list template is ready.
-            </div>
+            <div className="text-lg font-semibold text-slate-800">Create Session</div>
+            <div className="text-xs text-slate-500">Name your session and choose how many names each person adds. You can invite people after the list template is ready.</div>
           </div>
           <Button variant="subtle" onClick={onClose} disabled={busy}>
             Close
@@ -634,7 +632,7 @@ const CreateSessionModal = ({ open, busy, onClose, onCreate }) => {
             />
           </div>
           <div>
-            <label className="text-xs font-semibold text-slate-600">Name theme</label>
+            <label className="text-xs font-semibold text-slate-600">Name focus</label>
             <select
               className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
               value={nameFocus}
@@ -647,7 +645,7 @@ const CreateSessionModal = ({ open, busy, onClose, onCreate }) => {
             </select>
           </div>
           <div>
-            <label className="text-xs font-semibold text-slate-600">Required names per participant</label>
+            <label className="text-xs font-semibold text-slate-600">Names per person</label>
             <select
               className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
               value={requiredNames}
@@ -660,7 +658,7 @@ const CreateSessionModal = ({ open, busy, onClose, onCreate }) => {
                 </option>
               ))}
             </select>
-            <p className="mt-1 text-xs text-slate-500">{nameFocus === "mix" ? "Mix sessions use multiples of four so everyone can share evenly." : "Single-focus sessions use even numbers so rankings stay balanced."}</p>
+            <p className="mt-1 text-xs text-slate-500">{nameFocus === "mix" ? "Mix sessions use multiples of four so everyone can share evenly." : "Girls or Boys sessions use even numbers so rankings stay balanced."}</p>
           </div>
           <div className="flex justify-end gap-2">
             <Button type="button" variant="subtle" onClick={onClose} disabled={busy}>
@@ -700,7 +698,7 @@ const ParticipantsPanel = ({
   const headerAction = isOwner ? (
     <Button onClick={onLockInvites} disabled={lockBusy || session?.invitesLocked}>
       {lockBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Lock className="h-4 w-4" />}
-      {session?.invitesLocked ? "Invites locked" : "Lock invites"}
+      {session?.invitesLocked ? "Invites closed" : "Close invites"}
     </Button>
   ) : null;
 
@@ -714,8 +712,8 @@ const ParticipantsPanel = ({
     >
       <div className="space-y-3">
         <div className="space-y-1 text-xs">
-          <p className="text-slate-500">Owner can invite or remove participants. Existing users join automatically.</p>
-          <p className="text-indigo-600">Name theme: {focusLabel}</p>
+          <p className="text-slate-500">Only the owner can invite or remove people. Existing users join automatically.</p>
+          <p className="text-indigo-600">Name focus: {focusLabel}</p>
         </div>
 
         {isOwner ? (
@@ -1141,7 +1139,7 @@ const ResultsPanel = ({ lists, scores, requiredNames, invitesLocked, onTopTieCha
     if (!invitesLocked) {
       bodyContent = (
         <div className="rounded-lg border border-dashed border-slate-200 px-3 py-4 text-sm text-slate-500">
-          Waiting for the owner to lock invites before revealing totals.
+          Waiting for the owner to close invites before revealing totals.
         </div>
       );
     } else if (aggregated.ranking.length) {
@@ -1195,7 +1193,7 @@ const ResultsPanel = ({ lists, scores, requiredNames, invitesLocked, onTopTieCha
   const requiredCopy = requiredNames ? ` Each list carries ${requiredNames} names.` : "";
   const statusCopy = invitesLocked
     ? `Scores reveal once everyone finishes. Lower scores are better.${requiredCopy}`
-    : `Scores remain hidden until invites are locked.${requiredCopy}`;
+    : `Scores remain hidden until invites are closed.${requiredCopy}`;
 
   return (
     <SectionCollapse
