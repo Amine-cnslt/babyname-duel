@@ -307,47 +307,61 @@ const useQueryParams = () => {
   return entries;
 };
 
-const TopNav = ({ user, onSignOut, ambientEnabled, onToggleAmbient }) => (
-  <header className="sticky top-0 z-30 flex w-full justify-center px-4 pb-3 pt-4">
-    <div className="bnd-glass mx-auto flex w-full max-w-6xl items-center justify-between gap-4 rounded-3xl px-4 py-3 sm:px-6">
-      <div className="flex items-center gap-3 text-slate-800">
-        <div className="inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-white/85 via-amber-50/80 to-rose-100/70 text-amber-500 shadow-inner">
-          <span className="text-2xl" role="img" aria-label="Bee mascot">
-            🐝
-          </span>
+const TopNav = ({ user, onSignOut, ambientEnabled, onToggleAmbient, onProfile = () => {} }) => {
+  const topNavFirstName = user ? firstNameFromEmail(user.displayName || user.email) : null;
+  return (
+    <header className="sticky top-0 z-30 flex w-full justify-center px-4 pb-3 pt-4">
+      <div className="bnd-glass mx-auto flex w-full max-w-6xl items-center justify-between gap-4 rounded-3xl px-4 py-3 sm:px-6">
+        <div className="flex items-center gap-3 text-slate-800">
+          <div className="inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-white/85 via-amber-50/80 to-rose-100/70 text-amber-500 shadow-inner">
+            <span className="text-2xl" role="img" aria-label="Bee mascot">
+              🐝
+            </span>
+          </div>
+          <div className="flex flex-col text-left leading-tight">
+            <span className="font-display text-xl font-semibold text-slate-900 sm:text-2xl">
+              BabyNames <span className="text-amber-500">Hive</span>
+            </span>
+            <span className="text-xs font-medium text-slate-500">Curate the shortlist together.</span>
+          </div>
         </div>
-        <div className="flex flex-col text-left leading-tight">
-          <span className="font-display text-xl font-semibold text-slate-900 sm:text-2xl">
-            BabyNames <span className="text-amber-500">Hive</span>
-          </span>
-          <span className="text-xs font-medium text-slate-500">Curate the shortlist together.</span>
-        </div>
-      </div>
-      <div className="flex items-center gap-3">
-        <Button
-          variant="glass"
-          className="text-xs"
-          onClick={onToggleAmbient}
-          title={ambientEnabled ? "Mute lullaby ambience" : "Play gentle ambience"}
-        >
-          {ambientEnabled ? <VolumeX className="h-4 w-4" /> : <Music className="h-4 w-4" />}
-          <span>{ambientEnabled ? "Mute" : "Lullaby"}</span>
-        </Button>
-        <span className="hidden rounded-full border border-white/60 bg-white/80 px-3 py-1 text-xs font-medium text-slate-600 shadow-sm sm:inline-flex">
-          {user ? user.email : "Not signed in"}
-        </span>
-        {user ? (
-          <Button variant="secondary" onClick={() => onSignOut?.()}>
-            <LogOut className="h-4 w-4" />
-            Sign out
+        <div className="flex items-center gap-3">
+          <Button
+            variant="glass"
+            className="text-xs"
+            onClick={onToggleAmbient}
+            title={ambientEnabled ? "Mute lullaby ambience" : "Play gentle ambience"}
+          >
+            {ambientEnabled ? <VolumeX className="h-4 w-4" /> : <Music className="h-4 w-4" />}
+            <span>{ambientEnabled ? "Mute" : "Lullaby"}</span>
           </Button>
-        ) : null}
+          {user ? (
+            <Button
+              variant="glass"
+              className="hidden text-xs sm:inline-flex"
+              onClick={onProfile}
+              title={user.email || "Profile"}
+            >
+              {topNavFirstName || "Profile"}
+            </Button>
+          ) : (
+            <span className="hidden rounded-full border border-white/60 bg-white/80 px-3 py-1 text-xs font-medium text-slate-600 shadow-sm sm:inline-flex">
+              Not signed in
+            </span>
+          )}
+          {user ? (
+            <Button variant="secondary" onClick={() => onSignOut?.()}>
+              <LogOut className="h-4 w-4" />
+              Sign out
+            </Button>
+          ) : null}
+        </div>
       </div>
-    </div>
-  </header>
-);
+    </header>
+  );
+};
 
-const MobileDock = React.memo(({ active, onNavigate, hasSession }) => (
+const MobileDock = React.memo(({ active, onNavigate, hasSession, sessionsPending = 0, alertsCount = 0 }) => (
   <nav className="bnd-mobile-nav bnd-glass" aria-label="Primary">
     <button
       type="button"
@@ -366,6 +380,11 @@ const MobileDock = React.memo(({ active, onNavigate, hasSession }) => (
     >
       <LayoutGrid />
       <span>Sessions</span>
+      {sessionsPending > 0 ? (
+        <span className="absolute -top-1 -right-1 inline-flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] font-semibold text-white">
+          {sessionsPending > 9 ? "9+" : sessionsPending}
+        </span>
+      ) : null}
     </button>
     <button
       type="button"
@@ -385,6 +404,11 @@ const MobileDock = React.memo(({ active, onNavigate, hasSession }) => (
     >
       <Bell />
       <span>Alerts</span>
+      {alertsCount > 0 ? (
+        <span className="absolute -top-1 -right-1 inline-flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-amber-500 px-1 text-[10px] font-semibold text-white">
+          {alertsCount > 9 ? "9+" : alertsCount}
+        </span>
+      ) : null}
     </button>
     <button
       type="button"
@@ -398,10 +422,15 @@ const MobileDock = React.memo(({ active, onNavigate, hasSession }) => (
   </nav>
 ));
 
+const capitalize = (value) => {
+  if (!value) return "";
+  return value.charAt(0).toUpperCase() + value.slice(1);
+};
+
 const firstNameFromEmail = (email) => {
   if (!email) return "Someone";
   const name = email.split("@")[0].replace(/[._+-]+/g, " ");
-  return name ? name.charAt(0).toUpperCase() + name.slice(1) : "Someone";
+  return name ? capitalize(name.split(/\s+/)[0]) : "Someone";
 };
 
 const NAME_FOCUS_LABELS = {
@@ -2364,13 +2393,17 @@ export default function App() {
       setActiveDock(view);
       switch (view) {
         case "home":
-          scrollToId(null);
+          if (isDesktop) {
+            scrollToId(null);
+          }
           if (sessionDoc) {
             void handleExitSession();
           }
           break;
         case "sessions":
-          scrollToId("sessions-board");
+          if (isDesktop) {
+            scrollToId("sessions-board");
+          }
           break;
         case "messages":
           if (!sessionDoc) break;
@@ -2380,24 +2413,23 @@ export default function App() {
             setTimeout(() => {
               lastMessageCountRef.current = messages.length;
             }, 0);
-          } else {
-            updatePanelState((prev) => ({ ...prev, messages: true }));
-            setTimeout(() => {
-              scrollToId("messages-panel");
-            }, 80);
           }
           break;
         case "notifications":
-          scrollToId("notifications-panel");
+          if (isDesktop) {
+            scrollToId("notifications-panel");
+          }
           break;
         case "profile":
-          scrollToId("profile-panel");
+          if (isDesktop) {
+            scrollToId("profile-panel");
+          }
           break;
         default:
           break;
       }
     },
-    [handleExitSession, scrollToId, sessionDoc, updatePanelState, isDesktop, messages.length],
+    [handleExitSession, scrollToId, sessionDoc, isDesktop, messages.length],
   );
 
   const allExpanded = PANEL_KEYS.every((panelKey) => panelExpanded[panelKey]);
@@ -2976,6 +3008,137 @@ export default function App() {
     return stats;
   }, [activeCount, pendingListCount, unreadNotificationCount, activeTieBreakCount]);
   const allCaughtUp = pendingListCount === 0 && unreadNotificationCount === 0 && activeTieBreakCount === 0;
+  const profileNameParts = useMemo(() => {
+    if (!user) {
+      return { first: "", last: "" };
+    }
+    const display = (user.displayName || "").trim();
+    if (display) {
+      const parts = display.split(/\s+/);
+      return {
+        first: capitalize(parts[0] || userFirstName),
+        last: parts.slice(1).map(capitalize).join(" "),
+      };
+    }
+    const local = (user.email || "").split("@")[0].replace(/[._+-]+/g, " ").trim();
+    if (!local) {
+      return { first: userFirstName, last: "" };
+    }
+    const pieces = local.split(/\s+/);
+    const first = pieces.length ? capitalize(pieces[0]) : userFirstName;
+    const last = pieces.length > 1 ? pieces.slice(1).map(capitalize).join(" ") : "";
+    return { first: first || userFirstName, last };
+  }, [user, userFirstName]);
+  const profileFirstName = profileNameParts.first || userFirstName;
+  const profileLastName = profileNameParts.last;
+
+  const mobileHomeContent = (
+    <>
+      <Card className="space-y-3 p-5">
+        <div className="text-sm font-semibold text-slate-700">Hey {userFirstName}, here’s what’s happening</div>
+        <div className="space-y-2 text-xs text-slate-500">
+          {mobileStats.map(({ label, value }) => (
+            <div
+              key={label}
+              className="flex items-center justify-between rounded-lg border border-white/60 bg-white/80 px-3 py-2 shadow-sm"
+            >
+              <span>{label}</span>
+              <span className="font-semibold text-slate-700">{value}</span>
+            </div>
+          ))}
+        </div>
+        {allCaughtUp ? (
+          <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-700">
+            You’re all caught up! 🎉
+          </div>
+        ) : null}
+        <p className="text-xs text-slate-500">Use the tabs below to manage sessions, chat, or view alerts.</p>
+      </Card>
+      {activeCount + archivedCount === 0 ? (
+        <Card className="space-y-2 p-5">
+          <div className="text-sm font-semibold text-slate-700">Start your first session</div>
+          <p className="text-xs text-slate-500">
+            Create a new duel to invite family and begin shortlisting favorite names.
+          </p>
+          <Button variant="primary" onClick={() => setCreateOpen(true)}>
+            <PlusCircle className="h-4 w-4" />
+            New session
+          </Button>
+        </Card>
+      ) : null}
+    </>
+  );
+
+  const mobileSessionsContent = (
+    <>
+      <SessionsDashboard
+        sessions={sessions}
+        activeSid={activeSid}
+        onSelect={(sid) => setActiveSid(sid)}
+        onOpenCreate={() => setCreateOpen(true)}
+        loading={sessionsBusy}
+      />
+      {sessionBusy && activeSid ? (
+        <Card className="flex items-center gap-2 p-4 text-sm text-slate-500">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          Loading session…
+        </Card>
+      ) : null}
+    </>
+  );
+
+  const mobileNotificationsContent = (
+    <NotificationsPanel
+      notifications={notifications}
+      onRefresh={refreshNotifications}
+      onMarkAll={markAllNotifications}
+      onMarkSingle={markNotification}
+    />
+  );
+
+  const mobileProfileContent = (
+    <Card className="space-y-3 p-5">
+      <div className="text-sm font-semibold text-slate-700">Profile</div>
+      <div className="space-y-2 text-xs text-slate-500">
+        <div className="flex items-center justify-between rounded-lg border border-white/60 bg-white/80 px-3 py-2 shadow-sm">
+          <span>First name</span>
+          <span className="font-semibold text-slate-700">{profileFirstName || "—"}</span>
+        </div>
+        <div className="flex items-center justify-between rounded-lg border border-white/60 bg-white/80 px-3 py-2 shadow-sm">
+          <span>Last name</span>
+          <span className="font-semibold text-slate-700">{profileLastName || "—"}</span>
+        </div>
+        <div className="flex items-center justify-between rounded-lg border border-white/60 bg-white/80 px-3 py-2 shadow-sm">
+          <span>Email</span>
+          <span className="font-semibold text-slate-700">{user?.email || "—"}</span>
+        </div>
+      </div>
+    </Card>
+  );
+
+  const mobileMessagesContent = (
+    <Card className="space-y-2 p-5">
+      <div className="text-sm font-semibold text-slate-700">Messages</div>
+      <p className="text-xs text-slate-500">
+        Open a session from the Sessions tab to chat with your crew.
+      </p>
+    </Card>
+  );
+
+  const mobileContent = (() => {
+    switch (activeDock) {
+      case "sessions":
+        return mobileSessionsContent;
+      case "notifications":
+        return mobileNotificationsContent;
+      case "profile":
+        return mobileProfileContent;
+      case "messages":
+        return mobileMessagesContent;
+      default:
+        return mobileHomeContent;
+    }
+  })();
   return (
     <div className="bnd-app-shell relative flex min-h-screen flex-col text-slate-800">
       <FloatingDecor />
@@ -2988,6 +3151,7 @@ export default function App() {
             ensureAudioContext();
             toggleAmbient();
           }}
+          onProfile={() => handleDockNavigate("profile")}
         />
         <main className="mx-auto w-full max-w-6xl px-4 pb-32 pt-10 sm:px-6 lg:px-8 lg:pb-24">
           {user ? (
@@ -3184,86 +3348,37 @@ export default function App() {
                 </div>
               ) : null}
             </div>
-          ) : (
-            <div className="bnd-responsive-grid">
-              {isDesktop ? (
-                <>
-                  <div id="notifications-panel" className="col-span-full lg:col-span-5">
-                    <NotificationsPanel
-                      notifications={notifications}
-                      onRefresh={refreshNotifications}
-                      onMarkAll={markAllNotifications}
-                      onMarkSingle={markNotification}
-                    />
-                  </div>
-
-                  <div id="sessions-board" className="col-span-full lg:col-span-7">
-                    <SessionsDashboard
-                      sessions={sessions}
-                      activeSid={activeSid}
-                      onSelect={(sid) => setActiveSid(sid)}
-                      onOpenCreate={() => setCreateOpen(true)}
-                      loading={sessionsBusy}
-                    />
-                  </div>
-
-                  {sessionBusy && activeSid && (
-                    <Card className="col-span-full flex items-center gap-2 p-4 text-sm text-slate-500">
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                      Loading session…
-                    </Card>
-                  )}
-                </>
-              ) : (
-                <div className="col-span-full space-y-4">
-                  <Card className="space-y-3 p-5">
-                    <div className="text-sm font-semibold text-slate-700">Hey {userFirstName}, here’s what’s happening</div>
-                    <div className="space-y-2 text-xs text-slate-500">
-                      {mobileStats.map(({ label, value }) => (
-                        <div
-                          key={label}
-                          className="flex items-center justify-between rounded-lg border border-white/60 bg-white/80 px-3 py-2 shadow-sm"
-                        >
-                          <span>{label}</span>
-                          <span className="font-semibold text-slate-700">{value}</span>
-                        </div>
-                      ))}
-                    </div>
-                    {allCaughtUp ? (
-                      <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-700">
-                        You’re all caught up! 🎉
-                      </div>
-                    ) : null}
-                    <p className="text-xs text-slate-500">
-                      Use the tabs below to manage sessions or check alerts.
-                    </p>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <Button variant="primary" onClick={() => handleDockNavigate("sessions")}>
-                        <LayoutGrid className="h-4 w-4" />
-                        Go to sessions
-                      </Button>
-                      <Button variant="subtle" onClick={() => handleDockNavigate("notifications")}>
-                        <Bell className="h-4 w-4" />
-                        View alerts
-                      </Button>
-                    </div>
-                  </Card>
-                  {activeCount + archivedCount === 0 ? (
-                    <Card className="space-y-2 p-5">
-                      <div className="text-sm font-semibold text-slate-700">Start your first session</div>
-                      <p className="text-xs text-slate-500">
-                        Create a new duel to invite family and begin shortlisting favorite names.
-                      </p>
-                      <Button variant="primary" onClick={() => setCreateOpen(true)}>
-                        <PlusCircle className="h-4 w-4" />
-                        New session
-                      </Button>
-                    </Card>
-                  ) : null}
-                </div>
-              )}
+        ) : isDesktop ? (
+          <div className="bnd-responsive-grid">
+            <div id="notifications-panel" className="col-span-full lg:col-span-5">
+              <NotificationsPanel
+                notifications={notifications}
+                onRefresh={refreshNotifications}
+                onMarkAll={markAllNotifications}
+                onMarkSingle={markNotification}
+              />
             </div>
-          )}
+
+            <div id="sessions-board" className="col-span-full lg:col-span-7">
+              <SessionsDashboard
+                sessions={sessions}
+                activeSid={activeSid}
+                onSelect={(sid) => setActiveSid(sid)}
+                onOpenCreate={() => setCreateOpen(true)}
+                loading={sessionsBusy}
+              />
+            </div>
+
+            {sessionBusy && activeSid && (
+              <Card className="col-span-full flex items-center gap-2 p-4 text-sm text-slate-500">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Loading session…
+              </Card>
+            )}
+          </div>
+        ) : (
+          <div className="space-y-4">{mobileContent}</div>
+        )}
         </main>
 
         {isDesktop && user && sessionDoc ? (
@@ -3315,6 +3430,8 @@ export default function App() {
             active={activeDock}
             onNavigate={handleDockNavigate}
             hasSession={Boolean(sessionDoc)}
+            sessionsPending={pendingListCount}
+            alertsCount={unreadNotificationCount}
           />
         ) : null}
 
