@@ -30,3 +30,4 @@
 - Track Lighthouse targets: Performance ≥ 90, Accessibility ≥ 95, Best Practices ≥ 95.
 - Ensure API responses remain JSON-only and CORS-configured for whitelisted origins.
 - Document architectural or API changes in `AGENTS.md` and `README.md` after implementation.
+- Exercise tie-break flows when scores tie: start (`POST /api/sessions/<sid>/tiebreak/start`), collect votes, and close to confirm winners or co-winners.

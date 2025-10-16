@@ -19,3 +19,4 @@ state.json
 *.log
 .DS_Store
 bnd.db
+bnd.db*

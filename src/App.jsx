@@ -1073,13 +1073,56 @@ const OtherListsPanel = ({
   );
 };
 
-const ResultsPanel = ({ lists, scores, requiredNames, invitesLocked, onTopTieChange, expanded, onToggle }) => {
+const ResultsPanel = ({
+  lists,
+  scores,
+  requiredNames,
+  invitesLocked,
+  tieBreak,
+  finalWinners,
+  isOwner,
+  onStartTieBreak,
+  onSubmitTieBreak,
+  onCloseTieBreak,
+  tieBreakBusy,
+  tieBreakSubmitBusy,
+  onTopTieChange,
+  expanded,
+  onToggle,
+}) => {
   const [celebrateKey, setCelebrateKey] = useState(null);
   const [showConfetti, setShowConfetti] = useState(false);
   const [showBanner, setShowBanner] = useState(false);
+  const [tieDraft, setTieDraft] = useState({});
+
+  const rawTieBreakNames = tieBreak?.names;
+  const tieBreakNames = useMemo(
+    () => (Array.isArray(rawTieBreakNames) ? rawTieBreakNames.map((name) => String(name)) : []),
+    [rawTieBreakNames],
+  );
+  const tieBreakKey = tieBreakNames.join("|");
+  const tieBreakActive = Boolean(tieBreak?.active);
+  const tieBreakSubmitted = Boolean(tieBreak?.submitted);
+
+  useEffect(() => {
+    if (!tieBreakActive || !tieBreakNames.length) {
+      setTieDraft({});
+      return;
+    }
+    setTieDraft((prev) => {
+      const next = {};
+      tieBreakNames.forEach((name) => {
+        next[name] = prev[name] ?? "";
+      });
+      return next;
+    });
+  }, [tieBreakActive, tieBreakKey, tieBreakNames]);
 
   const ConfettiOverlay = ({ seed = 72 }) => {
-    const pieces = Array.from({ length: Math.min(Math.max(seed, 24), 140) }, (_, idx) => idx);
+    const pieces = useMemo(
+      () => Array.from({ length: Math.min(Math.max(seed, 24), 140) }, (_, idx) => idx),
+      [seed],
+    );
     return (
       <div className="bnd-confetti">
         {pieces.map((i) => {
@@ -1099,18 +1142,18 @@ const ResultsPanel = ({ lists, scores, requiredNames, invitesLocked, onTopTieCha
             animationDuration: `${duration}ms`,
             animationDelay: `${delay}ms`,
           };
-          return <i key={i} style={style} />;
+          return <i key={`${seed}-${i}`} style={style} />;
         })}
       </div>
     );
   };
+
   const aggregated = useMemo(() => {
     if (!invitesLocked || !lists) {
       return { ranking: [], topNames: [] };
     }
 
     const perName = {};
-
     Object.entries(scores || {}).forEach(([ownerUid, entries]) => {
       Object.entries(entries || {}).forEach(([name, meta]) => {
         if (typeof meta?.value !== "number") return;
@@ -1158,27 +1201,129 @@ const ResultsPanel = ({ lists, scores, requiredNames, invitesLocked, onTopTieCha
 
   const topTie = aggregated.topNames.length > 1;
   const winnerNames = aggregated.topNames.map((row) => row.name);
-  const winnerSignature = invitesLocked && !topTie && winnerNames[0] ? `${winnerNames[0]}:${aggregated.topNames[0].total}` : null;
+  const winnerTotal = aggregated.topNames.length ? aggregated.topNames[0].total : null;
+
+  const finalWinnerList = Array.isArray(finalWinners)
+    ? finalWinners.filter((name) => typeof name === "string" && name.trim().length)
+    : [];
+  const singleFinalWinner = finalWinnerList.length === 1 ? finalWinnerList[0] : null;
+
+  useEffect(() => {
+    if (finalWinnerList.length || tieBreakActive) {
+      onTopTieChange?.(false);
+      return;
+    }
+    onTopTieChange?.(topTie);
+  }, [finalWinnerList.length, tieBreakActive, topTie, onTopTieChange]);
+
+  const displayWinner = singleFinalWinner
+    || (!tieBreakActive && invitesLocked && !finalWinnerList.length && !topTie ? winnerNames[0] : null);
 
   useEffect(() => {
     if (!expanded) return;
-    if (winnerSignature && celebrateKey !== winnerSignature) {
-      setCelebrateKey(winnerSignature);
-      setShowConfetti(true);
-      setShowBanner(true);
-      const t1 = setTimeout(() => setShowConfetti(false), 2400);
-      const t2 = setTimeout(() => setShowBanner(false), 3600);
-      return () => {
-        clearTimeout(t1);
-        clearTimeout(t2);
-      };
-    }
-  }, [expanded, winnerSignature, celebrateKey]);
-  const winnerTotal = aggregated.topNames.length ? aggregated.topNames[0].total : null;
+    const signature = singleFinalWinner
+      ? `final:${singleFinalWinner}`
+      : (!tieBreakActive
+          && invitesLocked
+          && !finalWinnerList.length
+          && !topTie
+          && winnerNames[0]
+          && winnerTotal !== null
+        ? `live:${winnerNames[0]}:${winnerTotal}`
+        : null);
 
-  useEffect(() => {
-    onTopTieChange?.(topTie);
-  }, [onTopTieChange, topTie]);
+    if (!signature || signature === celebrateKey) {
+      if (!signature) {
+        setShowConfetti(false);
+        setShowBanner(false);
+      }
+      return;
+    }
+
+    setCelebrateKey(signature);
+    setShowConfetti(true);
+    setShowBanner(true);
+    const t1 = setTimeout(() => setShowConfetti(false), 2400);
+    const t2 = setTimeout(() => setShowBanner(false), singleFinalWinner ? 3600 : 2600);
+    return () => {
+      clearTimeout(t1);
+      clearTimeout(t2);
+    };
+  }, [expanded, singleFinalWinner, tieBreakActive, invitesLocked, finalWinnerList.length, topTie, winnerNames, winnerTotal, celebrateKey]);
+
+  const tieOptions = useMemo(
+    () => Array.from({ length: tieBreakNames.length }, (_, idx) => String(idx + 1)),
+    [tieBreakNames.length],
+  );
+  const tieDraftValues = tieBreakNames.map((name) => tieDraft[name] ?? "");
+  const allTieRanksSelected = tieBreakNames.length > 0 && tieDraftValues.every((value) => value !== "" && value !== undefined);
+  const uniqueTieRanks = tieDraftValues.length === new Set(tieDraftValues).size;
+  const disableTieSubmit = tieBreakSubmitBusy || tieBreakSubmitted || !allTieRanksSelected || !uniqueTieRanks;
+
+  const handleTieDraftChange = useCallback((name, value) => {
+    setTieDraft((prev) => ({ ...prev, [name]: value }));
+  }, []);
+
+  const handleTieSubmit = async (event) => {
+    event.preventDefault();
+    if (disableTieSubmit) return;
+    const ranks = {};
+    tieBreakNames.forEach((name) => {
+      ranks[name] = Number(tieDraft[name]);
+    });
+    await onSubmitTieBreak?.(ranks);
+  };
+
+  const canStartTieBreak = invitesLocked && !tieBreakActive && !finalWinnerList.length && topTie && isOwner;
+  const showTieBreakHint = invitesLocked && !tieBreakActive && !finalWinnerList.length && topTie && !isOwner;
+
+  let highlightMessage;
+  if (finalWinnerList.length === 1) {
+    highlightMessage = (
+      <>Final winner: <strong>{finalWinnerList[0]}</strong>.</>
+    );
+  } else if (finalWinnerList.length > 1) {
+    highlightMessage = (
+      <>Co-winners: <strong>{finalWinnerList.join(", ")}</strong>.</>
+    );
+  } else if (tieBreakActive) {
+    highlightMessage = (
+      <>Tie-break in progress. Rank the highlighted names below to crown a winner.</>
+    );
+  } else if (topTie) {
+    highlightMessage = (
+      <>Tie detected between <strong>{winnerNames.join(", ")}</strong>. A tie-break will decide the winner.</>
+    );
+  } else if (winnerNames[0]) {
+    highlightMessage = (
+      <>Current leader: <strong>{winnerNames[0]}</strong> with a total score of {winnerTotal}.</>
+    );
+  } else {
+    highlightMessage = "Waiting for results.";
+  }
+
+  const highlightClass = finalWinnerList.length
+    ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+    : tieBreakActive
+      ? "border-indigo-200 bg-indigo-50 text-indigo-700"
+      : topTie
+        ? "border-amber-200 bg-amber-50 text-amber-700"
+        : "border-emerald-200 bg-emerald-50 text-emerald-700";
+
+  let statusCopy;
+  if (finalWinnerList.length) {
+    statusCopy = finalWinnerList.length === 1
+      ? "Session completed. Celebrate the winning name!"
+      : "Session completed with co-winners sharing the spotlight.";
+  } else if (tieBreakActive) {
+    statusCopy = "Tie-break underway. Ranking votes will decide the final winner.";
+  } else if (invitesLocked) {
+    const requiredCopy = requiredNames ? ` Each list carries ${requiredNames} names.` : "";
+    statusCopy = `Scores reveal once everyone finishes. Lower scores are better.${requiredCopy}`;
+  } else {
+    const requiredCopy = requiredNames ? ` Each list carries ${requiredNames} names.` : "";
+    statusCopy = `Scores remain hidden until invites are closed.${requiredCopy}`;
+  }
 
   let bodyContent = null;
   if (expanded) {
@@ -1191,9 +1336,9 @@ const ResultsPanel = ({ lists, scores, requiredNames, invitesLocked, onTopTieCha
     } else if (aggregated.ranking.length) {
       bodyContent = (
         <div className="space-y-3">
-          {showBanner && !topTie && winnerNames[0] ? (
+          {showBanner && displayWinner ? (
             <div className="bnd-winner-banner">
-              <span className="bnd-winner-float text-xs font-semibold text-amber-700">Winner</span>
+              <span className="bnd-winner-float text-xs font-semibold text-amber-700">{singleFinalWinner ? "Final winner" : "Leader"}</span>
               <span
                 className="bnd-winner-float text-lg font-extrabold"
                 style={{
@@ -1203,31 +1348,107 @@ const ResultsPanel = ({ lists, scores, requiredNames, invitesLocked, onTopTieCha
                   fontFamily: 'ui-rounded, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif',
                 }}
               >
-                {winnerNames[0]}
+                {displayWinner}
               </span>
-              <span className="text-xs text-slate-600">is leading the board</span>
+              <span className="text-xs text-slate-600">{singleFinalWinner ? "takes the crown" : "is leading the board"}</span>
             </div>
           ) : null}
-          <div
-            className={`rounded-lg border px-3 py-3 text-sm ${
-              topTie ? "border-amber-200 bg-amber-50 text-amber-700" : "border-emerald-200 bg-emerald-50 text-emerald-700"
-            }`}
-          >
-            {topTie ? (
-              <>Tie detected for first place between {winnerNames.join(", ")}. Plan a tie-break vote focused on these names.</>
-            ) : (
-              <>Current winner: <strong>{winnerNames[0]}</strong> with a total score of {winnerTotal}.</>
-            )}
+
+          <div className={`rounded-lg border px-3 py-3 text-sm ${highlightClass}`}>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>{highlightMessage}</div>
+              {canStartTieBreak ? (
+                <Button
+                  variant="primary"
+                  className="text-xs"
+                  onClick={onStartTieBreak}
+                  disabled={tieBreakBusy}
+                >
+                  {tieBreakBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+                  Start tie-break
+                </Button>
+              ) : null}
+            </div>
+            {showTieBreakHint ? (
+              <div className="mt-2 text-xs text-slate-500">
+                The session owner will start a tie-break to choose the final winner.
+              </div>
+            ) : null}
           </div>
+
+          {tieBreakActive ? (
+            <div className="rounded-lg border border-indigo-200 bg-indigo-50 p-4 space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <div className="text-sm font-semibold text-indigo-700">Tie-break voting</div>
+                  <div className="text-xs text-slate-600">Rank these names to help crown the winner.</div>
+                </div>
+                {isOwner ? (
+                  <Button
+                    variant="secondary"
+                    className="text-xs"
+                    onClick={onCloseTieBreak}
+                    disabled={tieBreakBusy}
+                  >
+                    {tieBreakBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+                    Finalize tie-break
+                  </Button>
+                ) : null}
+              </div>
+              {tieBreakSubmitted ? (
+                <div className="rounded-lg border border-emerald-200 bg-white px-3 py-2 text-xs text-emerald-700">
+                  Thanks! Your tie-break vote is saved.
+                </div>
+              ) : (
+                <form onSubmit={handleTieSubmit} className="space-y-3">
+                  {tieBreakNames.map((name) => (
+                    <div key={name} className="flex items-center justify-between gap-3 rounded-lg border border-white/60 bg-white px-3 py-2">
+                      <span className="text-sm font-medium text-slate-700">{name}</span>
+                      <select
+                        className="rounded-lg border border-slate-300 px-2 py-1 text-sm"
+                        value={tieDraft[name] ?? ""}
+                        onChange={(event) => handleTieDraftChange(name, event.target.value)}
+                        disabled={tieBreakSubmitBusy}
+                      >
+                        <option value="">Rank…</option>
+                        {tieOptions.map((option) => (
+                          <option key={option} value={option}>
+                            {option}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  ))}
+                  <Button type="submit" variant="primary" disabled={disableTieSubmit}>
+                    {tieBreakSubmitBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+                    Submit tie-break vote
+                  </Button>
+                </form>
+              )}
+            </div>
+          ) : null}
 
           {aggregated.ranking.map((row, index) => {
             const fact = factIndex[row.name.toLowerCase()];
+            const isWinner = finalWinnerList.includes(row.name);
+            const isTieCandidate = tieBreakActive && tieBreakNames.includes(row.name);
+            const rowClass = [
+              "rounded-lg border px-3 py-2 transition-colors",
+              isWinner ? "border-amber-200 bg-white shadow-sm" : "border-slate-200",
+              !isWinner && isTieCandidate ? "bg-indigo-50/70 border-indigo-200" : "",
+            ].join(" ");
             return (
-              <div key={row.name} className="rounded-lg border border-slate-200 px-3 py-2">
-                <div className="flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-2 font-semibold text-slate-700">
+              <div key={row.name} className={rowClass}>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex flex-wrap items-center gap-2 font-semibold text-slate-700">
                     <span>#{index + 1} · {row.name}</span>
                     <FactButton fact={fact} />
+                    {isWinner ? (
+                      <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-700">Winner</span>
+                    ) : null}
+                    {!isWinner && isTieCandidate ? (
+                      <span className="rounded-full bg-indigo-100 px-2 py-0.5 text-[11px] font-semibold text-indigo-700">Tie-break</span>
+                    ) : null}
                   </div>
                   <div className="text-sm text-slate-500">Total: {row.total} · Average: {row.average.toFixed(2)}</div>
                 </div>
@@ -1253,11 +1474,6 @@ const ResultsPanel = ({ lists, scores, requiredNames, invitesLocked, onTopTieCha
     }
   }
 
-  const requiredCopy = requiredNames ? ` Each list carries ${requiredNames} names.` : "";
-  const statusCopy = invitesLocked
-    ? `Scores reveal once everyone finishes. Lower scores are better.${requiredCopy}`
-    : `Scores remain hidden until invites are closed.${requiredCopy}`;
-
   return (
     <SectionCollapse
       title="Results"
@@ -1266,7 +1482,7 @@ const ResultsPanel = ({ lists, scores, requiredNames, invitesLocked, onTopTieCha
       onToggle={onToggle}
     >
       <div className="text-xs text-slate-500">{statusCopy}</div>
-      {showConfetti ? <ConfettiOverlay seed={88} /> : null}
+      {showConfetti ? <ConfettiOverlay seed={singleFinalWinner ? 120 : 88} /> : null}
       {bodyContent}
     </SectionCollapse>
   );
@@ -1384,6 +1600,8 @@ export default function App() {
   const [inviteBusy, setInviteBusy] = useState(false);
   const [lockBusy, setLockBusy] = useState(false);
   const [directMessageBusy, setDirectMessageBusy] = useState(false);
+  const [tieBreakBusy, setTieBreakBusy] = useState(false);
+  const [tieBreakSubmitBusy, setTieBreakSubmitBusy] = useState(false);
   const [pendingJoin, setPendingJoin] = useState(null);
   const [inviteInfo, setInviteInfo] = useState(null);
   const [createOpen, setCreateOpen] = useState(false);
@@ -1869,6 +2087,8 @@ export default function App() {
     setScoreDrafts({});
     setCompletedScores({});
     setSessionBusy(false);
+    setTieBreakBusy(false);
+    setTieBreakSubmitBusy(false);
     await loadSessions();
   };
 
@@ -2215,6 +2435,55 @@ export default function App() {
     }
   };
 
+  const handleStartTieBreak = async () => {
+    if (!sessionDoc || !user) return;
+    setTieBreakBusy(true);
+    try {
+      await api.startTieBreak({ sid: sessionDoc.sid });
+      await loadSession(sessionDoc.sid);
+      playToken("alert");
+    } catch (err) {
+      console.error("Start tie-break failed", err);
+      alert(err.message || "Unable to start tie-break");
+      playToken("warning");
+    } finally {
+      setTieBreakBusy(false);
+    }
+  };
+
+  const handleSubmitTieBreakVotes = async (ranks) => {
+    if (!sessionDoc || !user) return;
+    setTieBreakSubmitBusy(true);
+    try {
+      await api.submitTieBreakVotes({ sid: sessionDoc.sid, ranks });
+      await loadSession(sessionDoc.sid);
+      playToken("success");
+    } catch (err) {
+      console.error("Submit tie-break votes failed", err);
+      alert(err.message || "Unable to submit tie-break vote");
+      playToken("warning");
+    } finally {
+      setTieBreakSubmitBusy(false);
+    }
+  };
+
+  const handleCloseTieBreak = async () => {
+    if (!sessionDoc || !user) return;
+    setTieBreakBusy(true);
+    try {
+      const res = await api.closeTieBreak({ sid: sessionDoc.sid });
+      await loadSession(sessionDoc.sid);
+      const winners = res?.winners || [];
+      playToken(winners.length === 1 ? "success" : "neutral");
+    } catch (err) {
+      console.error("Close tie-break failed", err);
+      alert(err.message || "Unable to close tie-break");
+      playToken("warning");
+    } finally {
+      setTieBreakBusy(false);
+    }
+  };
+
   const handleArchive = async () => {
     if (!sessionDoc || !user) return;
     if (!window.confirm("Archive this session?")) return;
@@ -2277,6 +2546,8 @@ export default function App() {
         notificationsInitializedRef.current = false;
         setAmbientEnabled(false);
         soundscapeRef.current?.toggleAmbient(false);
+        setTieBreakBusy(false);
+        setTieBreakSubmitBusy(false);
       }
     },
     [authToken],
@@ -2500,6 +2771,14 @@ export default function App() {
               scores={scores}
               requiredNames={requiredNames}
               invitesLocked={sessionDoc.invitesLocked}
+              tieBreak={sessionDoc.tieBreak}
+              finalWinners={sessionDoc.finalWinners}
+              isOwner={isOwner}
+              onStartTieBreak={handleStartTieBreak}
+              onSubmitTieBreak={handleSubmitTieBreakVotes}
+              onCloseTieBreak={handleCloseTieBreak}
+              tieBreakBusy={tieBreakBusy}
+              tieBreakSubmitBusy={tieBreakSubmitBusy}
               onTopTieChange={(isTie) => {
                 if (isTie) {
                   playToken("alert");

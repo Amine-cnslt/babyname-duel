@@ -220,3 +220,26 @@ export async function markNotificationsRead({ ids, email }) {
 export async function logout() {
   return request("/api/logout", { method: "POST" });
 }
+
+export async function fetchTieBreak({ sid }) {
+  return request(`/api/sessions/${encodeURIComponent(sid)}/tiebreak`);
+}
+
+export async function startTieBreak({ sid }) {
+  return request(`/api/sessions/${encodeURIComponent(sid)}/tiebreak/start`, {
+    method: "POST",
+  });
+}
+
+export async function submitTieBreakVotes({ sid, ranks }) {
+  return request(`/api/sessions/${encodeURIComponent(sid)}/tiebreak/votes`, {
+    method: "POST",
+    json: { ranks },
+  });
+}
+
+export async function closeTieBreak({ sid }) {
+  return request(`/api/sessions/${encodeURIComponent(sid)}/tiebreak/close`, {
+    method: "POST",
+  });
+}

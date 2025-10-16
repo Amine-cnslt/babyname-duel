@@ -21,6 +21,7 @@ The agent should **enforce coding standards, performance, accessibility, and dep
 - **Database:** MySQL in production, SQLite for tests.
 - **Email:** SendGrid or SMTP; credentials always stored in `.env.local`.
 - **Authentication:** Werkzeug password hashes, Google OAuth (Firebase), secure reset tokens.
+- **Tie-breaks:** Single-round tie-break workflows (`/api/sessions/<sid>/tiebreak/*`) resolve first-place ties; if names remain tied after voting, the session completes with co-winners.
 
 ---
 
@@ -76,6 +77,7 @@ The agent should **enforce coding standards, performance, accessibility, and dep
 - Responsive breakpoints: `360`, `768`, `1024`, `1280`.
 - Dark mode optional; support prefers-color-scheme.
 - Performance target: LCP < 2.5s, CLS < 0.1.
+- Winner reveals: celebrate with confetti + banner; co-winners display without excessive motion (respect `prefers-reduced-motion`).
 
 ---
 

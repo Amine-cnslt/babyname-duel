@@ -340,3 +340,170 @@ def test_inviting_before_template_ready_is_blocked(client):
     assert invite_resp.status_code == 409
     body = invite_resp.get_json()
     assert "template" in body["error"]
+
+
+def test_tiebreak_flow_selects_single_winner(client, monkeypatch):
+    monkeypatch.setattr("app._send_email", lambda **_: True)
+
+    owner_email = "owner@example.com"
+    owner_token, _ = signup_user(client, owner_email, full_name="Owner")
+
+    create_resp = client.post(
+        "/api/sessions",
+        headers=auth_headers(owner_token),
+        json={
+            "email": owner_email,
+            "title": "Tie session",
+            "requiredNames": 4,
+            "nameFocus": "girl",
+        },
+    )
+    assert create_resp.status_code == 200
+    sid = create_resp.get_json()["session"]["sid"]
+
+    template_resp = client.post(
+        f"/api/sessions/{sid}/lists",
+        headers=auth_headers(owner_token),
+        json={
+            "email": owner_email,
+            "names": ["Ava", "Mia", "Luna", "Zara"],
+            "selfRanks": {"Ava": 1, "Mia": 2, "Luna": 3, "Zara": 4},
+            "finalize": True,
+            "slotCount": 4,
+        },
+    )
+    assert template_resp.status_code == 200
+
+    lock_resp = client.post(
+        f"/api/sessions/{sid}/lock-invites",
+        headers=auth_headers(owner_token),
+        json={"email": owner_email},
+    )
+    assert lock_resp.status_code == 200
+
+    from app import Score, Session, SessionLocal
+
+    db = SessionLocal()
+    try:
+        db.add_all(
+            [
+                Score(session_id=sid, list_owner_uid=owner_email, rater_uid="judge1", name="Ava", score_value=1),
+                Score(session_id=sid, list_owner_uid=owner_email, rater_uid="judge2", name="Mia", score_value=1),
+                Score(session_id=sid, list_owner_uid=owner_email, rater_uid="judge3", name="Ava", score_value=3),
+                Score(session_id=sid, list_owner_uid=owner_email, rater_uid="judge4", name="Mia", score_value=3),
+            ]
+        )
+        session_row = db.query(Session).filter_by(id=sid).first()
+        session_row.status = "active"
+        db.commit()
+    finally:
+        db.close()
+
+    start_resp = client.post(
+        f"/api/sessions/{sid}/tiebreak/start",
+        headers=auth_headers(owner_token),
+    )
+    assert start_resp.status_code == 200, start_resp.get_json()
+    payload = start_resp.get_json()
+    assert payload["ok"] is True
+    assert set(payload["names"]) == {"Ava", "Mia"}
+
+    vote_resp = client.post(
+        f"/api/sessions/{sid}/tiebreak/votes",
+        headers=auth_headers(owner_token),
+        json={"ranks": {"Ava": 1, "Mia": 2}},
+    )
+    assert vote_resp.status_code == 200
+
+    close_resp = client.post(
+        f"/api/sessions/{sid}/tiebreak/close",
+        headers=auth_headers(owner_token),
+    )
+    assert close_resp.status_code == 200
+    winners = close_resp.get_json()["winners"]
+    assert winners == ["Ava"]
+
+    session_view = client.get(
+        f"/api/sessions/{sid}?email={owner_email}",
+        headers=auth_headers(owner_token),
+    )
+    doc = session_view.get_json()["session"]
+    assert doc["status"] == "completed"
+    assert doc["finalWinners"] == ["Ava"]
+    assert doc["tieBreak"]["active"] is False
+
+
+def test_tiebreak_close_without_votes_keeps_co_winners(client, monkeypatch):
+    monkeypatch.setattr("app._send_email", lambda **_: True)
+
+    owner_email = "owner@example.com"
+    owner_token, _ = signup_user(client, owner_email, full_name="Owner")
+
+    create_resp = client.post(
+        "/api/sessions",
+        headers=auth_headers(owner_token),
+        json={
+            "email": owner_email,
+            "title": "Tie session 2",
+            "requiredNames": 4,
+            "nameFocus": "girl",
+        },
+    )
+    assert create_resp.status_code == 200
+    sid = create_resp.get_json()["session"]["sid"]
+
+    client.post(
+        f"/api/sessions/{sid}/lists",
+        headers=auth_headers(owner_token),
+        json={
+            "email": owner_email,
+            "names": ["Ava", "Mia", "Luna", "Zara"],
+            "selfRanks": {"Ava": 1, "Mia": 2, "Luna": 3, "Zara": 4},
+            "finalize": True,
+            "slotCount": 4,
+        },
+    )
+    client.post(
+        f"/api/sessions/{sid}/lock-invites",
+        headers=auth_headers(owner_token),
+        json={"email": owner_email},
+    )
+
+    from app import Score as TieScore, Session as TieSession, SessionLocal as TieSessionLocal
+
+    db = TieSessionLocal()
+    try:
+        db.add_all(
+            [
+                TieScore(session_id=sid, list_owner_uid=owner_email, rater_uid="judge1", name="Ava", score_value=2),
+                TieScore(session_id=sid, list_owner_uid=owner_email, rater_uid="judge2", name="Mia", score_value=2),
+            ]
+        )
+        session_row = db.query(TieSession).filter_by(id=sid).first()
+        session_row.status = "active"
+        db.commit()
+    finally:
+        db.close()
+
+    start_resp = client.post(
+        f"/api/sessions/{sid}/tiebreak/start",
+        headers=auth_headers(owner_token),
+    )
+    assert start_resp.status_code == 200, start_resp.get_json()
+
+    close_resp = client.post(
+        f"/api/sessions/{sid}/tiebreak/close",
+        headers=auth_headers(owner_token),
+    )
+    assert close_resp.status_code == 200
+    winners = close_resp.get_json()["winners"]
+    assert set(winners) == {"Ava", "Mia"}
+
+    session_view = client.get(
+        f"/api/sessions/{sid}?email={owner_email}",
+        headers=auth_headers(owner_token),
+    )
+    doc = session_view.get_json()["session"]
+    assert doc["status"] == "completed"
+    assert set(doc["finalWinners"]) == {"Ava", "Mia"}
+    assert doc["tieBreak"]["active"] is False

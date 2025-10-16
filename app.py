@@ -190,6 +190,12 @@ def ensure_schema(retries: int = 5, delay: float = 2.0):
                 conn.execute(sql_text('UPDATE sessions SET invites_locked = 0 WHERE invites_locked IS NULL'))
                 conn.execute(sql_text('UPDATE sessions SET template_ready = 0 WHERE template_ready IS NULL'))
                 conn.execute(sql_text("UPDATE sessions SET name_focus = 'mix' WHERE name_focus IS NULL OR name_focus = ''"))
+                if 'tiebreak_active' not in session_cols:
+                    conn.execute(sql_text('ALTER TABLE sessions ADD COLUMN tiebreak_active INTEGER DEFAULT 0'))
+                if 'tiebreak_names' not in session_cols:
+                    conn.execute(sql_text('ALTER TABLE sessions ADD COLUMN tiebreak_names TEXT'))
+                if 'final_winners' not in session_cols:
+                    conn.execute(sql_text('ALTER TABLE sessions ADD COLUMN final_winners TEXT'))
 
                 if not inspector.has_table('owner_list_states'):
                     OwnerListState.__table__.create(bind=engine, checkfirst=True)
@@ -215,6 +221,8 @@ def ensure_schema(retries: int = 5, delay: float = 2.0):
                     ActivityLog.__table__.create(bind=engine, checkfirst=True)
                 if not inspector.has_table('session_tokens'):
                     SessionToken.__table__.create(bind=engine, checkfirst=True)
+                if not inspector.has_table('tie_break_votes'):
+                    TieBreakVote.__table__.create(bind=engine, checkfirst=True)
             return
         except OperationalError as exc:
             attempt += 1
@@ -269,6 +277,16 @@ def _isoformat(value):
     if isinstance(value, datetime):
         return value.replace(microsecond=0).isoformat() + "Z"
     return str(value)
+
+
+def _load_json_array(value):
+    if not value:
+        return []
+    try:
+        data = json.loads(value)
+    except (TypeError, json.JSONDecodeError):
+        return []
+    return data if isinstance(data, list) else []
 
 
 def _hash_token(token: str) -> str:
@@ -838,6 +856,9 @@ class Session(Base):
     invite_voter_token = Column(String(64), nullable=False)
     invites_locked = Column(Boolean, nullable=False, default=False)
     template_ready = Column(Boolean, nullable=False, default=False)
+    tiebreak_active = Column(Boolean, nullable=False, default=False)
+    tiebreak_names = Column(Text, nullable=True)
+    final_winners = Column(Text, nullable=True)
     created_at = Column(DateTime, default=now_utc, nullable=False)
 
     members = relationship("Member", back_populates="session", cascade="all, delete-orphan")
@@ -847,6 +868,7 @@ class Session(Base):
     owner_states = relationship("OwnerListState", back_populates="session", cascade="all, delete-orphan")
     messages = relationship("Message", back_populates="session", cascade="all, delete-orphan")
     notifications = relationship("Notification", back_populates="session", cascade="all, delete-orphan")
+    tiebreak_votes = relationship("TieBreakVote", back_populates="session", cascade="all, delete-orphan")
 
 class Member(Base):
     __tablename__ = "members"
@@ -880,6 +902,18 @@ class Score(Base):
     created_at = Column(DateTime, default=now_utc, nullable=False)
 
     session = relationship("Session", back_populates="scores")
+
+
+class TieBreakVote(Base):
+    __tablename__ = "tie_break_votes"
+
+    session_id = Column(String(36), ForeignKey("sessions.id", ondelete="CASCADE"), primary_key=True)
+    rater_uid = Column(String(64), primary_key=True)
+    name = Column(String(100), primary_key=True)
+    rank = Column(Integer, nullable=False)
+    created_at = Column(DateTime, default=now_utc, nullable=False)
+
+    session = relationship("Session", back_populates="tiebreak_votes")
 
 
 class SessionInvite(Base):
@@ -1249,6 +1283,21 @@ def _recompute_session_status(db, session_id: str):
         db.commit()
 
 
+def _score_totals(db, session_id: str) -> dict:
+    rows = db.query(Score).filter_by(session_id=session_id).all()
+    totals = {}
+    for row in rows:
+        totals[row.name] = totals.get(row.name, 0) + row.score_value
+    return totals
+
+
+def _first_place_tie_names(totals: dict) -> list:
+    if not totals:
+        return []
+    lowest = min(totals.values())
+    return [name for name, value in totals.items() if value == lowest]
+
+
 def _serialize_session_for_user(session: Session, *, role: str, owners: int, max_owners: int, activity_ts) -> dict:
     max_names = session.max_names or 10
     return {
@@ -1262,6 +1311,8 @@ def _serialize_session_for_user(session: Session, *, role: str, owners: int, max
         "nameFocus": session.name_focus or "mix",
         "invitesLocked": bool(session.invites_locked),
         "templateReady": bool(session.template_ready),
+        "tieBreakActive": bool(session.tiebreak_active),
+        "finalWinners": _load_json_array(session.final_winners),
         "createdAt": _isoformat(session.created_at),
         "updatedAt": _isoformat(activity_ts or session.created_at),
         "role": role,
@@ -1288,6 +1339,11 @@ def _serialize_session_doc(session: Session, members, *, include_tokens: bool):
         "createdBy": session.created_by,
         "invitesLocked": bool(session.invites_locked),
         "templateReady": bool(session.template_ready),
+        "tieBreak": {
+            "active": bool(session.tiebreak_active),
+            "names": _load_json_array(session.tiebreak_names) if session.tiebreak_active else [],
+        },
+        "finalWinners": _load_json_array(session.final_winners),
     }
     if include_tokens:
         data["inviteOwnerToken"] = session.invite_owner_token
@@ -1730,6 +1786,17 @@ def api_get_session(sid):
         session_doc["listStates"] = state_map
         session_doc["viewerRole"] = member.role if member else None
         session_doc["invitesLocked"] = bool(session.invites_locked)
+        tie_info = session_doc.get("tieBreak", {})
+        if tie_info.get("active") and email:
+            submitted = bool(
+                db.query(TieBreakVote)
+                .filter_by(session_id=sid, rater_uid=email)
+                .first()
+            )
+            tie_info["submitted"] = submitted
+        else:
+            tie_info.setdefault("submitted", False)
+        session_doc["tieBreak"] = tie_info
         if include_tokens:
             invite_origin = _compute_invite_origin(request)
             invite_rows = (
@@ -1996,6 +2063,201 @@ def api_add_participants(sid):
             return jsonify({"ok": False, "error": "Unable to invite participants"}), 500
 
         return jsonify({"ok": True, "results": results})
+    finally:
+        db.close()
+
+
+@app.route("/api/sessions/<sid>/tiebreak", methods=["GET"])
+def api_tiebreak_status(sid):
+    db = SessionLocal()
+    try:
+        user = _require_user(db)
+        session = db.query(Session).filter_by(id=sid).first()
+        if not session:
+            return jsonify({"ok": False, "error": "Session not found"}), 404
+
+        member = _ensure_member(db, sid, user.email)
+        if not member and user.email != session.created_by:
+            return jsonify({"ok": False, "error": "Not a participant"}), 403
+
+        names = _load_json_array(session.tiebreak_names) if session.tiebreak_active else []
+        submitted = False
+        if session.tiebreak_active and member:
+            submitted = bool(
+                db.query(TieBreakVote)
+                .filter_by(session_id=sid, rater_uid=user.email)
+                .first()
+            )
+
+        payload = {
+            "active": bool(session.tiebreak_active),
+            "names": names,
+            "submitted": submitted,
+            "finalWinners": _load_json_array(session.final_winners),
+        }
+        return jsonify({"ok": True, "tieBreak": payload})
+    finally:
+        db.close()
+
+
+@app.route("/api/sessions/<sid>/tiebreak/start", methods=["POST"])
+def api_tiebreak_start(sid):
+    db = SessionLocal()
+    try:
+        user = _require_user(db)
+        session = db.query(Session).filter_by(id=sid).first()
+        if not session:
+            return jsonify({"ok": False, "error": "Session not found"}), 404
+
+        email = _normalize_email(user.email)
+        if session.created_by != email:
+            return jsonify({"ok": False, "error": "Only the owner can start a tie-break"}), 403
+        if session.status == "completed":
+            return jsonify({"ok": False, "error": "Session already completed"}), 409
+        if not session.invites_locked:
+            return jsonify({"ok": False, "error": "Close invites before starting a tie-break"}), 409
+        if session.tiebreak_active:
+            return jsonify({"ok": False, "error": "Tie-break already active"}), 409
+
+        totals = _score_totals(db, sid)
+        tied_names = _first_place_tie_names(totals)
+        if len(tied_names) < 2:
+            return jsonify({"ok": False, "error": "No tie to resolve"}), 409
+
+        session.tiebreak_active = True
+        session.tiebreak_names = json.dumps(tied_names)
+        session.final_winners = None
+        db.query(TieBreakVote).filter_by(session_id=sid).delete(synchronize_session=False)
+
+        for member in db.query(Member).filter_by(session_id=sid).all():
+            if member.uid == email:
+                continue
+            _create_notification(
+                db,
+                user_email=member.uid,
+                session_id=sid,
+                type_="tiebreak_started",
+                payload={"sid": sid, "names": tied_names},
+            )
+
+        _log_activity(
+            db,
+            actor=email,
+            action="tiebreak.start",
+            session_id=sid,
+            details={"names": tied_names},
+        )
+        db.commit()
+        return jsonify({"ok": True, "names": tied_names})
+    finally:
+        db.close()
+
+
+@app.route("/api/sessions/<sid>/tiebreak/votes", methods=["POST"])
+def api_tiebreak_vote(sid):
+    db = SessionLocal()
+    try:
+        user = _require_user(db)
+        session = db.query(Session).filter_by(id=sid).first()
+        if not session:
+            return jsonify({"ok": False, "error": "Session not found"}), 404
+        if not session.tiebreak_active:
+            return jsonify({"ok": False, "error": "Tie-break is not active"}), 409
+
+        member = _ensure_member(db, sid, user.email)
+        if not member:
+            return jsonify({"ok": False, "error": "Not a participant"}), 403
+
+        data = request.get_json(force=True) or {}
+        ranks = data.get("ranks")
+        names = _load_json_array(session.tiebreak_names)
+        if not isinstance(ranks, dict) or not names:
+            return jsonify({"ok": False, "error": "ranks object required"}), 400
+
+        try:
+            parsed = {name: int(ranks[name]) for name in names if name in ranks}
+        except (TypeError, ValueError):
+            return jsonify({"ok": False, "error": "Ranks must be integers"}), 400
+
+        if len(parsed) != len(names):
+            return jsonify({"ok": False, "error": "Rank every name"}), 400
+
+        values = list(parsed.values())
+        limit = len(names)
+        if any(value < 1 or value > limit for value in values):
+            return jsonify({"ok": False, "error": f"Ranks must be between 1 and {limit}"}), 400
+        if len(set(values)) != len(values):
+            return jsonify({"ok": False, "error": "Use each rank only once"}), 400
+
+        db.query(TieBreakVote).filter_by(session_id=sid, rater_uid=user.email).delete(synchronize_session=False)
+        now = now_utc()
+        for name, value in parsed.items():
+            db.add(TieBreakVote(session_id=sid, rater_uid=user.email, name=name, rank=value, created_at=now))
+
+        _log_activity(
+            db,
+            actor=user.email,
+            action="tiebreak.vote",
+            session_id=sid,
+            details={"names": names},
+        )
+        db.commit()
+        return jsonify({"ok": True})
+    finally:
+        db.close()
+
+
+@app.route("/api/sessions/<sid>/tiebreak/close", methods=["POST"])
+def api_tiebreak_close(sid):
+    db = SessionLocal()
+    try:
+        user = _require_user(db)
+        session = db.query(Session).filter_by(id=sid).first()
+        if not session:
+            return jsonify({"ok": False, "error": "Session not found"}), 404
+
+        email = _normalize_email(user.email)
+        if session.created_by != email:
+            return jsonify({"ok": False, "error": "Only the owner can close the tie-break"}), 403
+        if not session.tiebreak_active:
+            winners = _load_json_array(session.final_winners)
+            return jsonify({"ok": True, "winners": winners, "alreadyClosed": True})
+
+        names = _load_json_array(session.tiebreak_names)
+        votes = db.query(TieBreakVote).filter_by(session_id=sid).all()
+        totals = {name: 0 for name in names}
+        if votes:
+            for row in votes:
+                if row.name in totals:
+                    totals[row.name] += row.rank
+        tied = names if not votes else _first_place_tie_names(totals)
+        winners = tied if tied else names
+
+        session.final_winners = json.dumps(winners)
+        session.tiebreak_active = False
+        session.tiebreak_names = None
+        session.status = "completed"
+
+        for member in db.query(Member).filter_by(session_id=sid).all():
+            if member.uid == email:
+                continue
+            _create_notification(
+                db,
+                user_email=member.uid,
+                session_id=sid,
+                type_="tiebreak_closed",
+                payload={"sid": sid, "winners": winners},
+            )
+
+        _log_activity(
+            db,
+            actor=email,
+            action="tiebreak.close",
+            session_id=sid,
+            details={"winners": winners},
+        )
+        db.commit()
+        return jsonify({"ok": True, "winners": winners})
     finally:
         db.close()
 
@@ -2300,6 +2562,8 @@ def api_submit_score(sid):
             return jsonify({"ok": False, "error": "Session archived"}), 409
         if session.status == "completed":
             return jsonify({"ok": False, "error": "Session completed; voting is closed"}), 409
+        if session.tiebreak_active:
+            return jsonify({"ok": False, "error": "Tie-break in progress; scoring closed"}), 409
 
         owner_state = db.query(OwnerListState).filter_by(session_id=sid, owner_uid=list_owner_uid).first()
         if not owner_state or owner_state.status != "submitted":
