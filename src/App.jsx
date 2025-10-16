@@ -3029,22 +3029,24 @@ export default function App() {
                       Created {formatDate(sessionDoc.createdAt)} by {sessionDoc.createdBy}
                     </div>
                   </div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Button variant="glass" onClick={handleExitSession}>
-                      <ArrowLeft className="h-4 w-4" />
-                      Back to dashboard
-                    </Button>
-                    {isOwner ? (
-                      <>
-                        <Button variant="secondary" onClick={handleArchive}>
-                          Archive
-                        </Button>
-                        <Button variant="danger" onClick={handleDelete}>
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </>
-                    ) : null}
-                  </div>
+                  {isDesktop ? (
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Button variant="glass" onClick={handleExitSession}>
+                        <ArrowLeft className="h-4 w-4" />
+                        Back to dashboard
+                      </Button>
+                      {isOwner ? (
+                        <>
+                          <Button variant="secondary" onClick={handleArchive}>
+                            Archive
+                          </Button>
+                          <Button variant="danger" onClick={handleDelete}>
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </>
+                      ) : null}
+                    </div>
+                  ) : null}
                 </div>
               </Card>
 
