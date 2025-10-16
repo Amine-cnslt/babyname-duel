@@ -3161,30 +3161,65 @@ export default function App() {
             </div>
           ) : (
             <div className="bnd-responsive-grid">
-              <div id="notifications-panel" className="col-span-full lg:col-span-5">
-                <NotificationsPanel
-                  notifications={notifications}
-                  onRefresh={refreshNotifications}
-                  onMarkAll={markAllNotifications}
-                  onMarkSingle={markNotification}
-                />
-              </div>
+              {isDesktop ? (
+                <>
+                  <div id="notifications-panel" className="col-span-full lg:col-span-5">
+                    <NotificationsPanel
+                      notifications={notifications}
+                      onRefresh={refreshNotifications}
+                      onMarkAll={markAllNotifications}
+                      onMarkSingle={markNotification}
+                    />
+                  </div>
 
-              <div id="sessions-board" className="col-span-full lg:col-span-7">
-                <SessionsDashboard
-                  sessions={sessions}
-                  activeSid={activeSid}
-                  onSelect={(sid) => setActiveSid(sid)}
-                  onOpenCreate={() => setCreateOpen(true)}
-                  loading={sessionsBusy}
-                />
-              </div>
+                  <div id="sessions-board" className="col-span-full lg:col-span-7">
+                    <SessionsDashboard
+                      sessions={sessions}
+                      activeSid={activeSid}
+                      onSelect={(sid) => setActiveSid(sid)}
+                      onOpenCreate={() => setCreateOpen(true)}
+                      loading={sessionsBusy}
+                    />
+                  </div>
 
-              {sessionBusy && activeSid && (
-                <Card className="col-span-full flex items-center gap-2 p-4 text-sm text-slate-500">
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  Loading session…
-                </Card>
+                  {sessionBusy && activeSid && (
+                    <Card className="col-span-full flex items-center gap-2 p-4 text-sm text-slate-500">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Loading session…
+                    </Card>
+                  )}
+                </>
+              ) : (
+                <div className="col-span-full space-y-4">
+                  <Card className="space-y-2 p-5">
+                    <div className="text-sm font-semibold text-slate-700">Stay in sync</div>
+                    <p className="text-xs text-slate-500">
+                      Tap the bottom tabs to jump into sessions or check alerts. We’ll drop highlights here soon.
+                    </p>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Button variant="primary" onClick={() => handleDockNavigate("sessions")}>
+                        <LayoutGrid className="h-4 w-4" />
+                        Go to sessions
+                      </Button>
+                      <Button variant="subtle" onClick={() => handleDockNavigate("notifications")}>
+                        <Bell className="h-4 w-4" />
+                        View alerts
+                      </Button>
+                    </div>
+                  </Card>
+                  {activeCount + archivedCount === 0 ? (
+                    <Card className="space-y-2 p-5">
+                      <div className="text-sm font-semibold text-slate-700">Start your first session</div>
+                      <p className="text-xs text-slate-500">
+                        Create a new duel to invite family and begin shortlisting favorite names.
+                      </p>
+                      <Button variant="primary" onClick={() => setCreateOpen(true)}>
+                        <PlusCircle className="h-4 w-4" />
+                        New session
+                      </Button>
+                    </Card>
+                  ) : null}
+                </div>
               )}
             </div>
           )}
