@@ -4,18 +4,21 @@ import {
   ArrowLeft,
   Bell,
   ChevronDown,
+  Home,
   Info,
-  Music,
-  VolumeX,
+  LayoutGrid,
   Loader2,
   LogOut,
   Lock,
   MessageCircle,
+  Music,
   PlusCircle,
   RefreshCcw,
   Send,
   Trash2,
+  User,
   UserPlus,
+  VolumeX,
 } from "lucide-react";
 import LoginPage from "./components/LoginPage";
 import * as api from "./api";
@@ -28,12 +31,14 @@ import {
 import { createSoundscape } from "./soundscape.js";
 
 const Button = ({ children, className = "", variant = "secondary", ...props }) => {
-  const base = "inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-all duration-200 hover:-translate-y-0.5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2";
+  const base =
+    "bnd-btn inline-flex items-center justify-center gap-2 px-4 py-2 text-sm font-semibold tracking-wide transition duration-200 hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(249,115,98,0.4)] focus-visible:ring-offset-2 focus-visible:ring-offset-white";
   const variants = {
-    primary: "text-white bg-gradient-to-r from-pink-500 via-indigo-500 to-sky-500 shadow-lg shadow-pink-200/40 hover:shadow-xl",
-    secondary: "border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 shadow-sm",
-    subtle: "text-slate-600 hover:bg-white/60",
-    danger: "border border-rose-200 text-rose-600 hover:bg-rose-50",
+    primary: "bnd-btn--primary",
+    secondary: "bnd-btn--secondary text-slate-700",
+    subtle: "bnd-btn--subtle text-slate-600 hover:text-slate-800",
+    danger: "bnd-btn--danger",
+    glass: "bnd-btn--subtle bg-white/70 text-slate-600",
   };
   return (
     <button className={`${base} ${variants[variant] || variants.secondary} ${className}`} {...props}>
@@ -42,8 +47,10 @@ const Button = ({ children, className = "", variant = "secondary", ...props }) =
   );
 };
 
-const Card = ({ children, className = "" }) => (
-  <div className={`bnd-card-pop rounded-2xl bg-white/95 shadow-md border border-slate-200/80 backdrop-blur-sm ${className}`}>{children}</div>
+const Card = ({ children, className = "", ...props }) => (
+  <div className={`bnd-card-pop ${className}`} {...props}>
+    {children}
+  </div>
 );
 
 const SectionCollapse = ({
@@ -53,10 +60,11 @@ const SectionCollapse = ({
   onToggle,
   actions = null,
   children,
+  className = "",
 }) => {
   const contentId = React.useId();
   return (
-    <Card className="p-5 space-y-4" aria-labelledby={`${contentId}-label`}>
+    <Card className={`space-y-4 p-5 sm:p-6 ${className}`} aria-labelledby={`${contentId}-label`}>
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-2 text-base font-semibold text-slate-800" id={`${contentId}-label`}>
           {icon}
@@ -67,7 +75,7 @@ const SectionCollapse = ({
           <button
             type="button"
             onClick={onToggle}
-            className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-500 transition hover:bg-slate-50"
+            className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-white/60 bg-white/70 text-slate-500 shadow-sm transition hover:bg-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[rgba(249,115,98,0.35)]"
             aria-expanded={expanded}
             aria-controls={contentId}
             aria-label={expanded ? `Collapse ${title}` : `Expand ${title}`}
@@ -85,20 +93,65 @@ const SectionCollapse = ({
   );
 };
 
-const FloatingDecor = React.memo(() => (
-  <div className="bnd-floating">
-    <span style={{ top: "12%", left: "6%" }}>🍼</span>
-    <span className="bnd-flower" style={{ top: "18%", right: "12%" }}>🌸</span>
-    <span style={{ bottom: "16%", left: "18%" }}>🌙</span>
-    <span className="bnd-flower" style={{ bottom: "28%", right: "22%" }}>🌼</span>
-    <span style={{ top: "32%", left: "42%" }}>👶</span>
-    <span className="bnd-bee bnd-bee-one" style={{ top: "22%", left: "12%" }}>🐝</span>
-    <span className="bnd-bee bnd-bee-two" style={{ bottom: "22%", right: "18%" }}>🐝</span>
-    <div className="bnd-bubble" style={{ top: "8%", right: "6%" }} />
-    <div className="bnd-bubble" style={{ bottom: "10%", left: "8%" }} />
-    <div className="bnd-bubble" style={{ top: "48%", left: "12%" }} />
-  </div>
-));
+const FloatingDecor = React.memo(() => {
+  const [enabled, setEnabled] = useState(() => {
+    if (typeof window === "undefined") return false;
+    const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const isCompact = window.matchMedia("(max-width: 640px)").matches;
+    return !(prefersReducedMotion || isCompact);
+  });
+
+  useEffect(() => {
+    if (typeof window === "undefined") return undefined;
+    const motionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const compactQuery = window.matchMedia("(max-width: 640px)");
+    const update = () => setEnabled(!(motionQuery.matches || compactQuery.matches));
+
+    const add = (query) => {
+      if (typeof query.addEventListener === "function") {
+        query.addEventListener("change", update);
+      } else if (typeof query.addListener === "function") {
+        query.addListener(update);
+      }
+    };
+
+    const remove = (query) => {
+      if (typeof query.removeEventListener === "function") {
+        query.removeEventListener("change", update);
+      } else if (typeof query.removeListener === "function") {
+        query.removeListener(update);
+      }
+    };
+
+    add(motionQuery);
+    add(compactQuery);
+    update();
+
+    return () => {
+      remove(motionQuery);
+      remove(compactQuery);
+    };
+  }, []);
+
+  if (!enabled) {
+    return null;
+  }
+
+  return (
+    <div className="bnd-floating">
+      <span style={{ top: "12%", left: "6%" }}>🍼</span>
+      <span className="bnd-flower" style={{ top: "18%", right: "12%" }}>🌸</span>
+      <span style={{ bottom: "16%", left: "18%" }}>🌙</span>
+      <span className="bnd-flower" style={{ bottom: "28%", right: "22%" }}>🌼</span>
+      <span style={{ top: "32%", left: "42%" }}>👶</span>
+      <span className="bnd-bee bnd-bee-one" style={{ top: "22%", left: "12%" }}>🐝</span>
+      <span className="bnd-bee bnd-bee-two" style={{ bottom: "22%", right: "18%" }}>🐝</span>
+      <div className="bnd-bubble" style={{ top: "8%", right: "6%" }} />
+      <div className="bnd-bubble" style={{ bottom: "10%", left: "8%" }} />
+      <div className="bnd-bubble" style={{ top: "48%", left: "12%" }} />
+    </div>
+  );
+});
 
 const FactButton = ({ fact }) => {
   const [open, setOpen] = useState(false);
@@ -255,22 +308,24 @@ const useQueryParams = () => {
 };
 
 const TopNav = ({ user, onSignOut, ambientEnabled, onToggleAmbient }) => (
-  <div className="sticky top-0 z-20 w-full bg-white/80 backdrop-blur border-b border-slate-200">
-    <div className="mx-auto max-w-6xl px-4 py-3 flex items-center justify-between">
-      <div className="flex items-center gap-3 text-slate-800 font-semibold">
-        <div className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br from-pink-100 via-sky-100 to-indigo-100 text-pink-500 animate-soft-bounce shadow-inner">
-          <span className="text-2xl" role="img" aria-label="Bee mascot">🐝</span>
-        </div>
-        <div className="flex flex-col">
-          <span className="text-lg font-bold">
-            BabyNames <span className="font-extrabold text-amber-500">Hive</span>
+  <header className="sticky top-0 z-30 flex w-full justify-center px-4 pb-3 pt-4">
+    <div className="bnd-glass mx-auto flex w-full max-w-6xl items-center justify-between gap-4 rounded-3xl px-4 py-3 sm:px-6">
+      <div className="flex items-center gap-3 text-slate-800">
+        <div className="inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-white/85 via-amber-50/80 to-rose-100/70 text-amber-500 shadow-inner">
+          <span className="text-2xl" role="img" aria-label="Bee mascot">
+            🐝
           </span>
-          <span className="text-xs font-normal text-slate-500">Where tiny names buzz to life.</span>
+        </div>
+        <div className="flex flex-col text-left leading-tight">
+          <span className="font-display text-xl font-semibold text-slate-900 sm:text-2xl">
+            BabyNames <span className="text-amber-500">Hive</span>
+          </span>
+          <span className="text-xs font-medium text-slate-500">Curate the shortlist together.</span>
         </div>
       </div>
       <div className="flex items-center gap-3">
         <Button
-          variant="subtle"
+          variant="glass"
           className="text-xs"
           onClick={onToggleAmbient}
           title={ambientEnabled ? "Mute lullaby ambience" : "Play gentle ambience"}
@@ -278,25 +333,70 @@ const TopNav = ({ user, onSignOut, ambientEnabled, onToggleAmbient }) => (
           {ambientEnabled ? <VolumeX className="h-4 w-4" /> : <Music className="h-4 w-4" />}
           <span>{ambientEnabled ? "Mute" : "Lullaby"}</span>
         </Button>
+        <span className="hidden rounded-full border border-white/60 bg-white/80 px-3 py-1 text-xs font-medium text-slate-600 shadow-sm sm:inline-flex">
+          {user ? user.email : "Not signed in"}
+        </span>
         {user ? (
-          <span className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-600 shadow-sm">
-            {user.email}
-          </span>
-        ) : (
-          <span className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-600 shadow-sm">
-            Not signed in
-          </span>
-        )}
-        {user ? (
-          <Button onClick={() => onSignOut?.()}>
+          <Button variant="secondary" onClick={() => onSignOut?.()}>
             <LogOut className="h-4 w-4" />
             Sign out
           </Button>
         ) : null}
       </div>
     </div>
-  </div>
+  </header>
 );
+
+const MobileDock = React.memo(({ active, onNavigate, hasSession }) => (
+  <nav className="bnd-mobile-nav bnd-glass" aria-label="Primary">
+    <button
+      type="button"
+      onClick={() => onNavigate("home")}
+      data-active={active === "home"}
+      aria-label="Home feed"
+    >
+      <Home />
+      <span>Home</span>
+    </button>
+    <button
+      type="button"
+      onClick={() => onNavigate("sessions")}
+      data-active={active === "sessions"}
+      aria-label="Sessions"
+    >
+      <LayoutGrid />
+      <span>Sessions</span>
+    </button>
+    <button
+      type="button"
+      onClick={() => onNavigate("messages")}
+      data-active={active === "messages"}
+      aria-label="Messages"
+      disabled={!hasSession}
+    >
+      <MessageCircle />
+      <span>Chat</span>
+    </button>
+    <button
+      type="button"
+      onClick={() => onNavigate("notifications")}
+      data-active={active === "notifications"}
+      aria-label="Notifications"
+    >
+      <Bell />
+      <span>Alerts</span>
+    </button>
+    <button
+      type="button"
+      onClick={() => onNavigate("profile")}
+      data-active={active === "profile"}
+      aria-label="Profile"
+    >
+      <User />
+      <span>Profile</span>
+    </button>
+  </nav>
+));
 
 const firstNameFromEmail = (email) => {
   if (!email) return "Someone";
@@ -423,7 +523,7 @@ const getNotificationCopy = (note) => {
 const NotificationsPanel = ({ notifications, onRefresh, onMarkAll, onMarkSingle }) => {
   if (!notifications?.length) {
     return (
-      <Card className="p-4">
+      <Card className="space-y-2 p-5 sm:p-6">
         <div className="flex items-center gap-2 text-sm text-slate-500">
           <Bell className="h-4 w-4" />
           No notifications yet.
@@ -435,10 +535,10 @@ const NotificationsPanel = ({ notifications, onRefresh, onMarkAll, onMarkSingle 
   const unread = notifications.filter((note) => !note.readAt).map((note) => note.id);
 
   return (
-    <Card className="p-4 space-y-3">
-      <div className="flex items-center justify-between gap-2">
+    <Card className="space-y-4 p-5 sm:p-6">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2">
-          <div className="text-sm font-semibold text-slate-700">Notifications</div>
+          <div className="font-display text-base font-semibold text-slate-800">Notifications</div>
           <Button variant="subtle" className="text-xs" onClick={onRefresh}>
             <RefreshCcw className="h-3.5 w-3.5" />
             Refresh
@@ -450,15 +550,15 @@ const NotificationsPanel = ({ notifications, onRefresh, onMarkAll, onMarkSingle 
           </Button>
         ) : null}
       </div>
-      <div className="space-y-3 max-h-60 overflow-y-auto pr-1">
+      <div className="max-h-64 space-y-3 overflow-y-auto pr-1">
         {notifications.map((note) => (
           <div
             key={note.id}
-            className={`rounded-lg border px-3 py-3 text-sm ${note.readAt ? "border-slate-100 bg-slate-50" : "border-indigo-100 bg-indigo-50"}`}
+            className={`rounded-2xl border px-3 py-3 text-sm ${note.readAt ? "border-slate-100 bg-white/70" : "border-amber-100 bg-amber-50/80"}`}
           >
             <div className="flex items-start justify-between gap-2">
               <div>
-                <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
                   {note.type.replace(/_/g, " ")}
                 </div>
                 {(() => {
@@ -467,7 +567,7 @@ const NotificationsPanel = ({ notifications, onRefresh, onMarkAll, onMarkSingle 
                     <pre className="mt-1 whitespace-pre-wrap text-xs text-slate-600">{copy.body}</pre>
                   ) : (
                     <>
-                      <div className="mt-1 text-sm font-semibold text-slate-700">{copy.heading}</div>
+                      <div className="mt-1 text-sm font-semibold text-slate-800">{copy.heading}</div>
                       <div className="mt-0.5 text-xs text-slate-600">{copy.body}</div>
                     </>
                   );
@@ -475,7 +575,7 @@ const NotificationsPanel = ({ notifications, onRefresh, onMarkAll, onMarkSingle 
                 {onMarkSingle ? (
                   <button
                     type="button"
-                    className="mt-2 text-[11px] font-medium text-indigo-600 hover:underline"
+                    className="mt-2 text-[11px] font-medium text-amber-600 hover:underline"
                     onClick={() => onMarkSingle(note.id)}
                   >
                     Mark as read
@@ -513,16 +613,18 @@ const SessionsDashboard = ({ sessions, activeSid, onSelect, onOpenCreate, loadin
     <button
       key={session.sid}
       onClick={() => onSelect(session.sid)}
-      className={`w-full rounded-lg border px-3 py-2 text-left text-sm transition hover:bg-slate-50 ${
-        session.sid === activeSid ? "border-indigo-400 bg-indigo-50" : "border-slate-200"
+      className={`w-full rounded-2xl border px-4 py-3 text-left text-sm transition hover:-translate-y-0.5 hover:shadow-lg hover:shadow-amber-100 ${
+        session.sid === activeSid
+          ? "border-amber-300 bg-amber-50/70"
+          : "border-slate-200/70 bg-white/80"
       }`}
     >
       <div className="flex items-center justify-between gap-3">
         <div>
-          <div className="font-semibold text-slate-700">{session.title}</div>
+          <div className="font-semibold text-slate-800">{session.title}</div>
           <div className="text-xs text-slate-500">Updated {formatDate(session.updatedAt)}</div>
         </div>
-        <div className="text-xs text-slate-500 text-right">
+        <div className="text-right text-xs text-slate-500">
           <div className="capitalize">{session.role}</div>
           <div>{session.requiredNames} names</div>
           <div>Focus: {NAME_FOCUS_LABELS[session.nameFocus] || NAME_FOCUS_LABELS.mix}</div>
@@ -532,10 +634,10 @@ const SessionsDashboard = ({ sessions, activeSid, onSelect, onOpenCreate, loadin
   );
 
   return (
-    <Card className="p-0">
-      <div className="flex items-center justify-between gap-3 px-5 pt-5">
+    <Card className="flex flex-col gap-4 p-6">
+      <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <div className="flex items-center gap-2 text-base font-semibold text-slate-700">
+          <div className="flex items-center gap-2 font-display text-lg font-semibold text-slate-800">
             <span role="img" aria-hidden="true">🍼</span>
             Sessions
           </div>
@@ -546,31 +648,30 @@ const SessionsDashboard = ({ sessions, activeSid, onSelect, onOpenCreate, loadin
           New Session
         </Button>
       </div>
-      <div className="mt-5 flex border-b border-slate-200 px-5">
+      <div className="flex items-center gap-2 rounded-full bg-white/70 p-1 text-xs font-semibold text-slate-500 shadow-inner">
         {[
           { id: "active", label: "Active" },
           { id: "archived", label: "Archived" },
         ].map(({ id, label }) => (
           <button
             key={id}
+            type="button"
             onClick={() => setTab(id)}
-            className={`relative -mb-px rounded-t-lg px-4 py-2 text-sm font-medium transition ${
-              tab === id
-                ? "bg-white text-indigo-600 border border-slate-200 border-b-white"
-                : "text-slate-500 hover:text-slate-700"
+            className={`flex-1 rounded-full px-4 py-2 transition ${
+              tab === id ? "bg-amber-100/80 text-slate-800 shadow" : "hover:text-slate-700"
             }`}
           >
             {label}
           </button>
         ))}
       </div>
-      <div className="space-y-2 px-5 pb-5 pt-4">
+      <div className="space-y-2">
         {visibleSessions.length ? (
           <div className="space-y-2">
             {visibleSessions.map(renderSessionButton)}
           </div>
         ) : (
-          <div className="rounded-lg border border-dashed border-slate-200 px-3 py-4 text-xs text-slate-500">
+          <div className="rounded-2xl border border-dashed border-slate-200/80 px-4 py-6 text-xs text-slate-500">
             {emptyMessage}
           </div>
         )}
@@ -608,22 +709,25 @@ const CreateSessionModal = ({ open, busy, onClose, onCreate }) => {
   };
 
   return (
-    <div className="fixed inset-0 z-30 flex items-center justify-center bg-black/40 p-4">
-      <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
-        <div className="mb-4 flex items-center justify-between">
+    <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-900/45 backdrop-blur-sm px-4 py-6">
+      <div className="bnd-glass w-full max-w-lg rounded-3xl border border-white/45 px-6 py-6 shadow-2xl sm:px-8 sm:py-8">
+        <div className="mb-6 flex items-start justify-between gap-4">
           <div>
-            <div className="text-lg font-semibold text-slate-800">Create Session</div>
-            <div className="text-xs text-slate-500">Name your session and choose how many names each person adds. You can invite people after the list template is ready.</div>
+            <div className="font-display text-xl font-semibold text-slate-900">Create Session</div>
+            <div className="mt-1 text-xs text-slate-500">Name your session and choose how many names each person adds. Invite collaborators once the template is ready.</div>
           </div>
           <Button variant="subtle" onClick={onClose} disabled={busy}>
             Close
           </Button>
         </div>
         <form className="space-y-4" onSubmit={handleSubmit}>
-          <div>
-            <label className="text-xs font-semibold text-slate-600">Session name</label>
+          <div className="space-y-1">
+            <label className="text-xs font-semibold uppercase tracking-wide text-slate-500" htmlFor="session-title">
+              Session name
+            </label>
             <input
-              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+              id="session-title"
+              className="w-full rounded-2xl border border-slate-200/70 bg-white/90 px-3 py-2 text-sm text-slate-700 shadow-inner focus:border-amber-300 focus:outline-none focus:ring-2 focus:ring-amber-200/60"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               placeholder="e.g. Spring 2024 shortlist"
@@ -631,36 +735,48 @@ const CreateSessionModal = ({ open, busy, onClose, onCreate }) => {
               disabled={busy}
             />
           </div>
-          <div>
-            <label className="text-xs font-semibold text-slate-600">Name focus</label>
-            <select
-              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-              value={nameFocus}
-              onChange={(e) => setNameFocus(e.target.value)}
-              disabled={busy}
-            >
-              <option value="girl">Girls</option>
-              <option value="boy">Boys</option>
-              <option value="mix">Mix of both</option>
-            </select>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-1">
+              <label className="text-xs font-semibold uppercase tracking-wide text-slate-500" htmlFor="session-focus">
+                Name focus
+              </label>
+              <select
+                id="session-focus"
+                className="w-full rounded-2xl border border-slate-200/70 bg-white/90 px-3 py-2 text-sm text-slate-700 shadow-inner focus:border-amber-300 focus:outline-none focus:ring-2 focus:ring-amber-200/60"
+                value={nameFocus}
+                onChange={(e) => setNameFocus(e.target.value)}
+                disabled={busy}
+              >
+                <option value="girl">Girls</option>
+                <option value="boy">Boys</option>
+                <option value="mix">Mix of both</option>
+              </select>
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-semibold uppercase tracking-wide text-slate-500" htmlFor="session-required">
+                Names per person
+              </label>
+              <select
+                id="session-required"
+                className="w-full rounded-2xl border border-slate-200/70 bg-white/90 px-3 py-2 text-sm text-slate-700 shadow-inner focus:border-amber-300 focus:outline-none focus:ring-2 focus:ring-amber-200/60"
+                value={requiredNames}
+                onChange={(e) => setRequiredNames(Number(e.target.value))}
+                disabled={busy}
+              >
+                {requiredOptions.map((value) => (
+                  <option key={value} value={value}>
+                    {value}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
-          <div>
-            <label className="text-xs font-semibold text-slate-600">Names per person</label>
-            <select
-              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-              value={requiredNames}
-              onChange={(e) => setRequiredNames(Number(e.target.value))}
-              disabled={busy}
-            >
-              {requiredOptions.map((value) => (
-                <option key={value} value={value}>
-                  {value}
-                </option>
-              ))}
-            </select>
-            <p className="mt-1 text-xs text-slate-500">{nameFocus === "mix" ? "Mix sessions use multiples of four so everyone can share evenly." : "Girls or Boys sessions use even numbers so rankings stay balanced."}</p>
-          </div>
-          <div className="flex justify-end gap-2">
+          <p className="text-xs text-slate-500">
+            {nameFocus === "mix"
+              ? "Mix sessions use multiples of four so everyone can share evenly."
+              : "Girls or Boys sessions use even numbers so rankings stay balanced."}
+          </p>
+          <div className="flex justify-end gap-2 pt-2">
             <Button type="button" variant="subtle" onClick={onClose} disabled={busy}>
               Cancel
             </Button>
@@ -1488,9 +1604,25 @@ const ResultsPanel = ({
   );
 };
 
-const MessagesPanel = ({ messages, onSend, busy, participants, currentUser, expanded, onToggle }) => {
+const MessagesPanel = ({
+  messages,
+  onSend,
+  busy,
+  participants,
+  currentUser,
+  expanded,
+  onToggle,
+  variant = "panel",
+  onCloseDock,
+}) => {
   const [body, setBody] = useState("");
   const [recipient, setRecipient] = useState("all");
+
+  const isDock = variant === "dock";
+
+  const handleRecipientChange = (event) => {
+    setRecipient(event.target.value);
+  };
 
   const handleSubmit = async (event) => {
     event.preventDefault();
@@ -1499,6 +1631,85 @@ const MessagesPanel = ({ messages, onSend, busy, participants, currentUser, expa
     setBody("");
   };
 
+  const messageItems = messages.length ? (
+    messages.map((message) => (
+      <div key={message.id} className="rounded-lg border border-slate-200 px-3 py-2 text-sm">
+        <div className="flex items-center justify-between text-xs text-slate-500">
+          <span>
+            {message.sender === currentUser?.email ? "You" : message.sender}
+            {message.recipient ? (
+              <>
+                {" → "}
+                {message.recipient === currentUser?.email ? "You" : message.recipient}
+              </>
+            ) : " → All"}
+          </span>
+          <span>{formatDate(message.createdAt)}</span>
+        </div>
+        <div className="mt-1 text-slate-700">{message.body}</div>
+      </div>
+    ))
+  ) : (
+    <div className="rounded-lg border border-dashed border-slate-200 px-3 py-4 text-sm text-slate-500">
+      No messages yet.
+    </div>
+  );
+
+  const composer = (
+    <form onSubmit={handleSubmit} className="space-y-2">
+      <textarea
+        className={`w-full rounded-lg border border-slate-300 px-3 py-2 text-sm ${isDock ? "shadow-inner" : ""}`}
+        rows={isDock ? 4 : 3}
+        placeholder="Write a note or reminder"
+        value={body}
+        onChange={(event) => setBody(event.target.value)}
+        disabled={busy}
+      />
+      <div className="flex items-center justify-between gap-2">
+        <select
+          className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+          value={recipient}
+          onChange={handleRecipientChange}
+          disabled={busy}
+        >
+          <option value="all">All participants</option>
+          {participants.map((uid) => (
+            <option key={uid} value={uid}>
+              {uid}
+            </option>
+          ))}
+        </select>
+        <Button type="submit" variant="primary" disabled={busy}>
+          {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+          Send
+        </Button>
+      </div>
+    </form>
+  );
+
+  if (isDock) {
+    return (
+      <div
+        role="dialog"
+        aria-modal="false"
+        aria-label="Session messages"
+        className="bnd-glass flex h-[min(28rem,calc(100vh-10rem))] w-[min(420px,calc(100vw-3rem))] flex-col rounded-3xl border border-white/55 px-5 py-4 shadow-2xl"
+      >
+        <div className="mb-3 flex items-start justify-between gap-3">
+          <div className="space-y-1">
+            <div className="font-display text-lg font-semibold text-slate-900">Messages</div>
+            <p className="text-xs text-slate-500">Buzz quick updates or send a private note.</p>
+          </div>
+          <Button variant="subtle" className="text-xs" onClick={onCloseDock}>
+            Close
+          </Button>
+        </div>
+        <div className="flex-1 overflow-y-auto space-y-2 pr-1">{messageItems}</div>
+        <div className="pt-3">{composer}</div>
+      </div>
+    );
+  }
+
   return (
     <SectionCollapse
       title="Messages"
@@ -1506,60 +1717,8 @@ const MessagesPanel = ({ messages, onSend, busy, participants, currentUser, expa
       expanded={expanded}
       onToggle={onToggle}
     >
-      <div className="max-h-60 overflow-y-auto space-y-2 pr-1">
-        {messages.length ? (
-          messages.map((message) => (
-            <div key={message.id} className="rounded-lg border border-slate-200 px-3 py-2 text-sm">
-              <div className="flex items-center justify-between text-xs text-slate-500">
-                <span>
-                  {message.sender === currentUser?.email ? "You" : message.sender}
-                  {message.recipient ? (
-                    <>
-                      {" → "}
-                      {message.recipient === currentUser?.email ? "You" : message.recipient}
-                    </>
-                  ) : " → All"}
-                </span>
-                <span>{formatDate(message.createdAt)}</span>
-              </div>
-              <div className="mt-1 text-slate-700">{message.body}</div>
-            </div>
-          ))
-        ) : (
-          <div className="rounded-lg border border-dashed border-slate-200 px-3 py-4 text-sm text-slate-500">
-            No messages yet.
-          </div>
-        )}
-      </div>
-      <form onSubmit={handleSubmit} className="space-y-2">
-        <textarea
-          className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-          rows={3}
-          placeholder="Write a note or reminder"
-          value={body}
-          onChange={(e) => setBody(e.target.value)}
-          disabled={busy}
-        />
-        <div className="flex items-center justify-between">
-          <select
-            className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
-            value={recipient}
-            onChange={(e) => setRecipient(e.target.value)}
-            disabled={busy}
-          >
-            <option value="all">All participants</option>
-            {participants.map((uid) => (
-              <option key={uid} value={uid}>
-                {uid}
-              </option>
-            ))}
-          </select>
-          <Button type="submit" variant="primary" disabled={busy}>
-            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-            Send
-          </Button>
-        </div>
-      </form>
+      <div className="max-h-60 overflow-y-auto space-y-2 pr-1">{messageItems}</div>
+      {composer}
     </SectionCollapse>
   );
 };
@@ -1607,11 +1766,19 @@ export default function App() {
   const [createOpen, setCreateOpen] = useState(false);
   const [ambientEnabled, setAmbientEnabled] = useState(false);
   const [panelExpanded, setPanelExpanded] = useState(() => buildPanelState());
+  const [activeDock, setActiveDock] = useState("home");
+  const [isDesktop, setIsDesktop] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return window.matchMedia("(min-width: 768px)").matches;
+  });
+  const [chatDockOpen, setChatDockOpen] = useState(false);
+  const [chatDockHasNew, setChatDockHasNew] = useState(false);
 
   const soundscapeRef = useRef(null);
   const notificationCountRef = useRef(0);
   const notificationsInitializedRef = useRef(false);
   const inviteMismatchRef = useRef(false);
+  const lastMessageCountRef = useRef(0);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -1623,6 +1790,25 @@ export default function App() {
   }, [user]);
 
   useEffect(() => {
+    if (typeof window === "undefined") return undefined;
+    const query = window.matchMedia("(min-width: 768px)");
+    const update = () => setIsDesktop(query.matches);
+    if (typeof query.addEventListener === "function") {
+      query.addEventListener("change", update);
+    } else if (typeof query.addListener === "function") {
+      query.addListener(update);
+    }
+    update();
+    return () => {
+      if (typeof query.removeEventListener === "function") {
+        query.removeEventListener("change", update);
+      } else if (typeof query.removeListener === "function") {
+        query.removeListener(update);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
     if (typeof window === "undefined") return;
     if (authToken) {
       window.localStorage.setItem("bnd_token", authToken);
@@ -1631,6 +1817,13 @@ export default function App() {
     }
     api.setAuthToken(authToken);
   }, [authToken]);
+
+  useEffect(() => {
+    if (!isDesktop) {
+      setChatDockOpen(false);
+      setChatDockHasNew(false);
+    }
+  }, [isDesktop]);
 
   const queryParams = useQueryParams();
   const initialResetToken = queryParams.resetToken || "";
@@ -2009,6 +2202,21 @@ export default function App() {
   }, [activeSid, loadSession, user]);
 
   useEffect(() => {
+    if (!sessionDoc) {
+      setChatDockOpen(false);
+      setChatDockHasNew(false);
+      lastMessageCountRef.current = 0;
+    }
+  }, [sessionDoc]);
+
+  useEffect(() => {
+    if (!sessionDoc) {
+      return;
+    }
+    setActiveDock((prev) => (prev === "messages" || prev === "notifications" || prev === "profile" ? prev : "sessions"));
+  }, [sessionDoc]);
+
+  useEffect(() => {
     if (typeof window === "undefined") {
       setPanelExpanded(buildPanelState());
       return;
@@ -2053,6 +2261,24 @@ export default function App() {
     [persistPanelState],
   );
 
+  useEffect(() => {
+    if (!isDesktop) {
+      lastMessageCountRef.current = messages.length;
+      return;
+    }
+    const previous = lastMessageCountRef.current;
+    if (messages.length > previous && !chatDockOpen) {
+      setChatDockHasNew(true);
+    }
+    lastMessageCountRef.current = messages.length;
+  }, [messages, chatDockOpen, isDesktop]);
+
+  useEffect(() => {
+    if (chatDockOpen) {
+      setChatDockHasNew(false);
+    }
+  }, [chatDockOpen]);
+
   const handleCreateSession = async ({ title, requiredNames, nameFocus }) => {
     if (!user) return;
     setCreatingSession(true);
@@ -2074,8 +2300,12 @@ export default function App() {
     }
   };
 
-  const handleExitSession = async () => {
+  const handleExitSession = useCallback(async () => {
     setActiveSid(null);
+    setActiveDock("home");
+    setChatDockOpen(false);
+    setChatDockHasNew(false);
+    lastMessageCountRef.current = 0;
     if (sessionDoc?.sid && user?.email) {
       writeScoreDraftsToStorage(sessionDoc.sid, user.email, {});
     }
@@ -2090,7 +2320,7 @@ export default function App() {
     setTieBreakBusy(false);
     setTieBreakSubmitBusy(false);
     await loadSessions();
-  };
+  }, [loadSessions, sessionDoc, user]);
 
   const togglePanel = (key) => {
     updatePanelState((prev) => ({
@@ -2108,6 +2338,59 @@ export default function App() {
       return next;
     });
   };
+
+  const scrollToId = useCallback((targetId) => {
+    if (typeof window === "undefined") return;
+    if (!targetId) {
+      window.scrollTo({ top: 0, behavior: "smooth" });
+      return;
+    }
+    const element = document.getElementById(targetId);
+    if (element) {
+      element.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }, []);
+
+  const handleDockNavigate = useCallback(
+    (view) => {
+      setActiveDock(view);
+      switch (view) {
+        case "home":
+          scrollToId(null);
+          if (sessionDoc) {
+            void handleExitSession();
+          }
+          break;
+        case "sessions":
+          scrollToId("sessions-board");
+          break;
+        case "messages":
+          if (!sessionDoc) break;
+          if (isDesktop) {
+            setChatDockOpen(true);
+            setChatDockHasNew(false);
+            setTimeout(() => {
+              lastMessageCountRef.current = messages.length;
+            }, 0);
+          } else {
+            updatePanelState((prev) => ({ ...prev, messages: true }));
+            setTimeout(() => {
+              scrollToId("messages-panel");
+            }, 80);
+          }
+          break;
+        case "notifications":
+          scrollToId("notifications-panel");
+          break;
+        case "profile":
+          scrollToId("profile-panel");
+          break;
+        default:
+          break;
+      }
+    },
+    [handleExitSession, scrollToId, sessionDoc, updatePanelState, isDesktop, messages.length],
+  );
 
   const allExpanded = PANEL_KEYS.every((panelKey) => panelExpanded[panelKey]);
   const allCollapsed = PANEL_KEYS.every((panelKey) => !panelExpanded[panelKey]);
@@ -2491,6 +2774,7 @@ export default function App() {
       await api.archiveSession({ sid: sessionDoc.sid, email: user.email });
       await loadSessions();
       setActiveSid(null);
+      setActiveDock("home");
       playToken("neutral");
     } catch (err) {
       console.error("Archive failed", err);
@@ -2506,6 +2790,7 @@ export default function App() {
       await api.deleteSession({ sid: sessionDoc.sid, email: user.email });
       await loadSessions();
       setActiveSid(null);
+      setActiveDock("home");
       playToken("alert");
     } catch (err) {
       console.error("Delete failed", err);
@@ -2513,6 +2798,20 @@ export default function App() {
       playToken("warning");
     }
   };
+
+  const handleChatLauncherToggle = useCallback(() => {
+    setChatDockOpen((prev) => {
+      const next = !prev;
+      if (next) {
+        setChatDockHasNew(false);
+        lastMessageCountRef.current = messages.length;
+        setActiveDock("messages");
+      } else if (activeDock === "messages") {
+        setActiveDock(sessionDoc ? "sessions" : "home");
+      }
+      return next;
+    });
+  }, [activeDock, messages.length, sessionDoc]);
 
   const handleSignOut = useCallback(
     async ({ preservePending = false } = {}) => {
@@ -2542,6 +2841,10 @@ export default function App() {
           setPendingJoin(null);
         }
         setCreateOpen(false);
+        setActiveDock("home");
+        setChatDockOpen(false);
+        setChatDockHasNew(false);
+        lastMessageCountRef.current = 0;
         notificationCountRef.current = 0;
         notificationsInitializedRef.current = false;
         setAmbientEnabled(false);
@@ -2632,10 +2935,18 @@ export default function App() {
   const activeNameFocus =
     sessionDoc?.nameFocus || inviteNameFocus || "mix";
   const isOwner = sessionDoc?.createdBy === user?.email;
+  const messageParticipants = useMemo(() => {
+    if (!sessionDoc) return [];
+    return [...(sessionDoc.ownerIds || []), ...(sessionDoc.participantIds || [])].filter(
+      (uid) => uid && uid !== user?.email,
+    );
+  }, [sessionDoc, user]);
+  const activeCount = Array.isArray(sessions?.active) ? sessions.active.length : 0;
+  const archivedCount = Array.isArray(sessions?.archived) ? sessions.archived.length : 0;
   return (
-    <div className="relative min-h-screen text-slate-800">
+    <div className="bnd-app-shell relative flex min-h-screen flex-col text-slate-800">
       <FloatingDecor />
-      <div className="relative z-10 min-h-screen">
+      <div className="relative z-10 flex min-h-screen flex-col">
         <TopNav
           user={user}
           onSignOut={handleSignOut}
@@ -2645,8 +2956,34 @@ export default function App() {
             toggleAmbient();
           }}
         />
+        <main className="mx-auto w-full max-w-6xl px-4 pb-32 pt-10 sm:px-6 lg:px-8 lg:pb-24">
+          {user ? (
+            <Card
+              id="profile-panel"
+              className="mb-6 flex flex-wrap items-center justify-between gap-4 p-5 sm:mb-8 sm:p-6"
+            >
+              <div className="space-y-1">
+                <div className="font-display text-lg font-semibold text-slate-900">
+                  Hey {firstNameFromEmail(user.email)}
+                </div>
+                <div className="text-xs text-slate-500">{user.email}</div>
+                <div className="text-xs text-slate-500">
+                  Active sessions: {activeCount} · Archived: {archivedCount}
+                </div>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <Button variant="primary" onClick={() => setCreateOpen(true)}>
+                  <PlusCircle className="h-4 w-4" />
+                  New session
+                </Button>
+                <Button variant="subtle" onClick={() => handleDockNavigate("sessions")}>
+                  <LayoutGrid className="h-4 w-4" />
+                  View sessions
+                </Button>
+              </div>
+            </Card>
+          ) : null}
 
-        <main className="mx-auto max-w-6xl px-4 py-6">
           {!user ? (
             <LoginPage
               initialMode={initialLoginMode}
@@ -2659,173 +2996,239 @@ export default function App() {
               onRequestReset={(email) => api.requestPasswordReset({ email })}
               onConfirmReset={(token, newPassword) => api.resetPassword({ token, newPassword })}
             />
-        ) : sessionDoc ? (
-          <div className="space-y-4">
-            {sessionBusy && (
-              <Card className="p-4 flex items-center gap-2 text-sm text-slate-500">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                Loading session…
-              </Card>
-            )}
-
-            <Card className="p-5 space-y-3">
-              <div className="flex flex-wrap items-start justify-between gap-3">
-              <div className="space-y-1">
-                <div className="text-xl font-semibold text-slate-800">{sessionDoc.title}</div>
-                <div className="text-xs text-slate-500">
-                  Required names: {requiredNames} · Status: {sessionDoc.status}
-                </div>
-                <div className="text-xs text-slate-500">
-                  Name theme: {NAME_FOCUS_LABELS[activeNameFocus] || NAME_FOCUS_LABELS.mix}
-                </div>
-                <div className="text-xs text-slate-500">
-                  Created {formatDate(sessionDoc.createdAt)} by {sessionDoc.createdBy}
-                </div>
-              </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <Button variant="subtle" onClick={handleExitSession}>
-                    <ArrowLeft className="h-4 w-4" />
-                    Back to dashboard
-                  </Button>
-                  {isOwner ? (
-                    <>
-                      <Button variant="secondary" onClick={handleArchive}>
-                        Archive
-                      </Button>
-                      <Button variant="danger" onClick={handleDelete}>
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </>
-                  ) : null}
-                </div>
-              </div>
-            </Card>
-
-            <div className="flex items-center justify-end gap-2">
-              <Button variant="subtle" onClick={() => setAllPanels(true)} disabled={allExpanded}>
-                Expand all
-              </Button>
-              <Button variant="subtle" onClick={() => setAllPanels(false)} disabled={allCollapsed}>
-                Collapse all
-              </Button>
-            </div>
-
-            <ParticipantsPanel
-              session={sessionDoc}
-              isOwner={isOwner}
-              inviteBusy={inviteBusy}
-              onInvite={handleInvite}
-              onRemove={handleRemove}
-              onLockInvites={handleLockInvites}
-              lockBusy={lockBusy}
-              onMessage={handleDirectMessage}
-              directMessageBusy={directMessageBusy}
-              currentUser={user}
-              expanded={panelExpanded.participants}
-              onToggle={() => togglePanel("participants")}
-            />
-
-            <ListEditor
-              requiredNames={requiredNames}
-              nameFocus={activeNameFocus}
-              listState={listDraft}
-              onChangeName={(index, value) =>
-                setListDraft((prev) => {
-                  const names = [...prev.names];
-                  names[index] = value;
-                  return { ...prev, names };
-                })
-              }
-              onChangeRank={(index, value) =>
-                setListDraft((prev) => {
-                  const ranks = [...prev.ranks];
-                  ranks[index] = value;
-                  return { ...prev, ranks };
-                })
-              }
-              onSave={() => handleSaveList(false)}
-              onSubmit={() => handleSaveList(true)}
-              canEdit={listDraft.status !== "submitted"}
-              busy={sessionBusy}
-              expanded={panelExpanded.list}
-              onToggle={() => togglePanel("list")}
-            />
-
-            <OtherListsPanel
-              lists={lists}
-              scores={scoringModel.result}
-              currentUser={user}
-              requiredNames={requiredNames}
-              nameFocus={activeNameFocus}
-              draftState={scoreDrafts}
-              completedScores={completedScores}
-              onSaveDraft={handleSaveScoreDraft}
-              onSubmitScores={handleSubmitScores}
-              submitting={scoreSubmitting}
-              expanded={panelExpanded.otherLists}
-              onToggle={() => togglePanel("otherLists")}
-            />
-
-            <ResultsPanel
-              lists={lists}
-              scores={scores}
-              requiredNames={requiredNames}
-              invitesLocked={sessionDoc.invitesLocked}
-              tieBreak={sessionDoc.tieBreak}
-              finalWinners={sessionDoc.finalWinners}
-              isOwner={isOwner}
-              onStartTieBreak={handleStartTieBreak}
-              onSubmitTieBreak={handleSubmitTieBreakVotes}
-              onCloseTieBreak={handleCloseTieBreak}
-              tieBreakBusy={tieBreakBusy}
-              tieBreakSubmitBusy={tieBreakSubmitBusy}
-              onTopTieChange={(isTie) => {
-                if (isTie) {
-                  playToken("alert");
-                }
-              }}
-              expanded={panelExpanded.results}
-              onToggle={() => togglePanel("results")}
-            />
-
-            <MessagesPanel
-              messages={messages}
-              onSend={handleSendMessage}
-              busy={messageBusy}
-              participants={[...(sessionDoc.ownerIds || []), ...(sessionDoc.participantIds || [])].filter(
-                (uid) => uid !== user?.email,
+          ) : sessionDoc ? (
+            <div className="bnd-responsive-grid">
+              {sessionBusy && (
+                <Card className="col-span-full flex items-center gap-2 p-4 text-sm text-slate-500">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Loading session…
+                </Card>
               )}
-              currentUser={user}
-              expanded={panelExpanded.messages}
-              onToggle={() => togglePanel("messages")}
-            />
-          </div>
-        ) : (
-          <div className="space-y-4">
-            <NotificationsPanel
-              notifications={notifications}
-              onRefresh={refreshNotifications}
-              onMarkAll={markAllNotifications}
-              onMarkSingle={markNotification}
-            />
 
-            <SessionsDashboard
-              sessions={sessions}
-              activeSid={activeSid}
-              onSelect={(sid) => setActiveSid(sid)}
-              onOpenCreate={() => setCreateOpen(true)}
-              loading={sessionsBusy}
-            />
-
-            {sessionBusy && activeSid && (
-              <Card className="p-4 flex items-center gap-2 text-sm text-slate-500">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                Loading session…
+              <Card className="col-span-full space-y-3 p-6 sm:p-7">
+                <div className="flex flex-wrap items-start justify-between gap-4">
+                  <div className="space-y-1">
+                    <div className="font-display text-2xl font-semibold text-slate-900">{sessionDoc.title}</div>
+                    <div className="text-xs text-slate-500">
+                      Required names: {requiredNames} · Status: {sessionDoc.status}
+                    </div>
+                    <div className="text-xs text-slate-500">
+                      Name theme: {NAME_FOCUS_LABELS[activeNameFocus] || NAME_FOCUS_LABELS.mix}
+                    </div>
+                    <div className="text-xs text-slate-500">
+                      Created {formatDate(sessionDoc.createdAt)} by {sessionDoc.createdBy}
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button variant="glass" onClick={handleExitSession}>
+                      <ArrowLeft className="h-4 w-4" />
+                      Back to dashboard
+                    </Button>
+                    {isOwner ? (
+                      <>
+                        <Button variant="secondary" onClick={handleArchive}>
+                          Archive
+                        </Button>
+                        <Button variant="danger" onClick={handleDelete}>
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </>
+                    ) : null}
+                  </div>
+                </div>
               </Card>
-            )}
-          </div>
-        )}
+
+              <div className="col-span-full flex flex-wrap items-center justify-end gap-2">
+                <Button variant="subtle" onClick={() => setAllPanels(true)} disabled={allExpanded}>
+                  Expand all
+                </Button>
+                <Button variant="subtle" onClick={() => setAllPanels(false)} disabled={allCollapsed}>
+                  Collapse all
+                </Button>
+              </div>
+
+              <div className="col-span-full lg:col-span-5">
+                <ParticipantsPanel
+                  session={sessionDoc}
+                  isOwner={isOwner}
+                  inviteBusy={inviteBusy}
+                  onInvite={handleInvite}
+                  onRemove={handleRemove}
+                  onLockInvites={handleLockInvites}
+                  lockBusy={lockBusy}
+                  onMessage={handleDirectMessage}
+                  directMessageBusy={directMessageBusy}
+                  currentUser={user}
+                  expanded={panelExpanded.participants}
+                  onToggle={() => togglePanel("participants")}
+                />
+              </div>
+
+              <div className="col-span-full lg:col-span-7">
+                <ListEditor
+                  requiredNames={requiredNames}
+                  nameFocus={activeNameFocus}
+                  listState={listDraft}
+                  onChangeName={(index, value) =>
+                    setListDraft((prev) => {
+                      const names = [...prev.names];
+                      names[index] = value;
+                      return { ...prev, names };
+                    })
+                  }
+                  onChangeRank={(index, value) =>
+                    setListDraft((prev) => {
+                      const ranks = [...prev.ranks];
+                      ranks[index] = value;
+                      return { ...prev, ranks };
+                    })
+                  }
+                  onSave={() => handleSaveList(false)}
+                  onSubmit={() => handleSaveList(true)}
+                  canEdit={listDraft.status !== "submitted"}
+                  busy={sessionBusy}
+                  expanded={panelExpanded.list}
+                  onToggle={() => togglePanel("list")}
+                />
+              </div>
+
+              <div className="col-span-full lg:col-span-7">
+                <OtherListsPanel
+                  lists={lists}
+                  scores={scoringModel.result}
+                  currentUser={user}
+                  requiredNames={requiredNames}
+                  nameFocus={activeNameFocus}
+                  draftState={scoreDrafts}
+                  completedScores={completedScores}
+                  onSaveDraft={handleSaveScoreDraft}
+                  onSubmitScores={handleSubmitScores}
+                  submitting={scoreSubmitting}
+                  expanded={panelExpanded.otherLists}
+                  onToggle={() => togglePanel("otherLists")}
+                />
+              </div>
+
+              <div className="col-span-full lg:col-span-7">
+                <ResultsPanel
+                  lists={lists}
+                  scores={scores}
+                  requiredNames={requiredNames}
+                  invitesLocked={sessionDoc.invitesLocked}
+                  tieBreak={sessionDoc.tieBreak}
+                  finalWinners={sessionDoc.finalWinners}
+                  isOwner={isOwner}
+                  onStartTieBreak={handleStartTieBreak}
+                  onSubmitTieBreak={handleSubmitTieBreakVotes}
+                  onCloseTieBreak={handleCloseTieBreak}
+                  tieBreakBusy={tieBreakBusy}
+                  tieBreakSubmitBusy={tieBreakSubmitBusy}
+                  onTopTieChange={(isTie) => {
+                    if (isTie) {
+                      playToken("alert");
+                    }
+                  }}
+                  expanded={panelExpanded.results}
+                  onToggle={() => togglePanel("results")}
+                />
+              </div>
+
+              {!isDesktop ? (
+                <div id="messages-panel" className="col-span-full lg:col-span-5">
+                  <MessagesPanel
+                    messages={messages}
+                    onSend={handleSendMessage}
+                    busy={messageBusy}
+                    participants={messageParticipants}
+                    currentUser={user}
+                    expanded={panelExpanded.messages}
+                    onToggle={() => togglePanel("messages")}
+                  />
+                </div>
+              ) : null}
+            </div>
+          ) : (
+            <div className="bnd-responsive-grid">
+              <div id="notifications-panel" className="col-span-full lg:col-span-5">
+                <NotificationsPanel
+                  notifications={notifications}
+                  onRefresh={refreshNotifications}
+                  onMarkAll={markAllNotifications}
+                  onMarkSingle={markNotification}
+                />
+              </div>
+
+              <div id="sessions-board" className="col-span-full lg:col-span-7">
+                <SessionsDashboard
+                  sessions={sessions}
+                  activeSid={activeSid}
+                  onSelect={(sid) => setActiveSid(sid)}
+                  onOpenCreate={() => setCreateOpen(true)}
+                  loading={sessionsBusy}
+                />
+              </div>
+
+              {sessionBusy && activeSid && (
+                <Card className="col-span-full flex items-center gap-2 p-4 text-sm text-slate-500">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Loading session…
+                </Card>
+              )}
+            </div>
+          )}
         </main>
+
+        {isDesktop && user && sessionDoc ? (
+          <div className="pointer-events-none fixed bottom-6 right-6 z-40 flex flex-col items-end gap-4">
+            {chatDockOpen ? (
+              <div className="pointer-events-auto">
+                <MessagesPanel
+                  variant="dock"
+                  messages={messages}
+                  onSend={handleSendMessage}
+                  busy={messageBusy}
+                  participants={messageParticipants}
+                  currentUser={user}
+                  onCloseDock={() => {
+                    setChatDockOpen(false);
+                    setChatDockHasNew(false);
+                    if (activeDock === "messages") {
+                      setActiveDock(sessionDoc ? "sessions" : "home");
+                    }
+                  }}
+                />
+              </div>
+            ) : null}
+            <div className="pointer-events-auto group relative">
+              <Button
+                variant="primary"
+                className={`!gap-0 h-14 w-14 rounded-full p-0 text-white shadow-xl transition hover:shadow-2xl ${
+                  chatDockOpen ? "ring-2 ring-amber-200 ring-offset-2 ring-offset-white" : ""
+                }`}
+                aria-expanded={chatDockOpen}
+                aria-label={chatDockOpen ? "Close chat" : "Open chat"}
+                title={chatDockOpen ? "Close chat" : "Open chat"}
+                onClick={handleChatLauncherToggle}
+              >
+                <MessageCircle className="h-6 w-6" />
+                {chatDockHasNew ? (
+                  <span className="absolute -top-1.5 -right-1.5 h-3 w-3 rounded-full bg-rose-500 shadow-sm" aria-hidden="true" />
+                ) : null}
+              </Button>
+              <span className="pointer-events-none absolute right-full top-1/2 hidden -translate-x-3 -translate-y-1/2 rounded-full bg-amber-500/90 px-3 py-1 text-xs font-semibold text-white opacity-0 shadow-lg transition group-hover:block group-hover:opacity-100">
+                {chatDockOpen ? "Minimize chat" : "Chat with your crew"}
+              </span>
+            </div>
+          </div>
+        ) : null}
+
+        {user ? (
+          <MobileDock
+            active={activeDock}
+            onNavigate={handleDockNavigate}
+            hasSession={Boolean(sessionDoc)}
+          />
+        ) : null}
 
         <CreateSessionModal
           open={createOpen}

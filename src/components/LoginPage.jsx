@@ -162,28 +162,32 @@ export default function LoginPage({
   };
 
   return (
-    <div className="relative min-h-screen w-full overflow-hidden bg-[radial-gradient(80%_60%_at_0%_0%,#f43f5e_0%,#db2777_35%,transparent_60%),radial-gradient(80%_60%_at_100%_100%,#6366f1_0%,#7c3aed_40%,transparent_65%)]">
-      {/* floating emoji bubbles */}
-      <div className="pointer-events-none absolute -left-8 top-16 grid h-40 w-40 place-items-center rounded-full bg-white/10 backdrop-blur-sm text-3xl">👶</div>
-      <div className="pointer-events-none absolute right-24 top-40 grid h-28 w-28 place-items-center rounded-full bg-white/10 backdrop-blur-sm text-2xl">🍼</div>
-      <div className="pointer-events-none absolute bottom-20 right-28 grid h-32 w-32 place-items-center rounded-full bg-white/10 backdrop-blur-sm text-3xl">😊</div>
-
-      <div className="relative mx-auto flex min-h-screen max-w-7xl items-center justify-center px-4">
-        <div className="w-full max-w-md rounded-2xl bg-white/95 p-8 shadow-2xl backdrop-blur">
+    <div className="relative flex min-h-screen w-full items-center justify-center px-4 py-12 sm:py-16">
+      <div
+        className="pointer-events-none absolute inset-0 -z-10 bg-[radial-gradient(circle_at_top_left,rgba(255,204,160,0.2),transparent_55%),radial-gradient(circle_at_bottom_right,rgba(186,226,255,0.2),transparent_60%),linear-gradient(135deg,rgba(255,255,255,0.45),transparent_60%)]"
+        aria-hidden="true"
+      />
+      <div className="relative mx-auto flex w-full max-w-6xl flex-col items-center">
+        <div className="w-full max-w-md">
+          <div className="bnd-glass w-full rounded-3xl border border-white/45 px-6 py-8 shadow-2xl sm:px-8">
           {/* Brand */}
-          <div className="mb-6 text-center">
-            <div className="mx-auto mb-2 grid h-10 w-10 place-items-center rounded-full bg-indigo-50 text-indigo-600">🤝</div>
-            <h1 className="text-3xl font-extrabold leading-tight text-slate-800 whitespace-nowrap"><span className="text-indigo-600">BabyNames</span>{" "}<span className="font-extrabold text-amber-500">Hive</span> <span className="ml-2">🐝🌼🍼</span></h1>
-            <p className="mt-1 text-sm text-slate-500">Buzzing with beautiful name ideas.</p>
+          <div className="mb-8 text-center">
+            <div className="mx-auto mb-3 grid h-12 w-12 place-items-center rounded-2xl bg-gradient-to-br from-amber-100 via-white to-rose-100 text-amber-500 shadow-inner">
+              🐝
+            </div>
+            <h1 className="font-display text-3xl font-semibold leading-tight text-slate-900">
+              BabyNames <span className="text-amber-500">Hive</span>
+            </h1>
+            <p className="mt-2 text-sm text-slate-500">Curate names together with a joyful, social flow.</p>
           </div>
 
-          <h2 className="mb-1 text-center text-xl font-semibold text-slate-900">
+          <h2 className="mb-2 text-center font-display text-2xl font-semibold text-slate-900">
             {mode === "signin" && "Welcome back"}
             {mode === "signup" && "Create your account"}
             {mode === "forgot" && "Forgot your password?"}
             {mode === "reset" && "Reset your password"}
           </h2>
-          <p className="mb-5 text-center text-sm text-slate-500 whitespace-pre-line">
+          <p className="mb-6 text-center text-sm text-slate-500 whitespace-pre-line">
             {mode === "signin" && "Please sign in to continue your journey"}
             {mode === "signup" && "Start your baby name journey today"}
             {mode === "forgot" && "Enter the email you used at signup and we'll send you reset instructions."}
@@ -195,7 +199,7 @@ export default function LoginPage({
             <button
               type="button"
               onClick={() => onGoogleSignIn?.()}
-              className="mb-4 inline-flex w-full items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 active:scale-[.99]"
+              className="bnd-btn bnd-btn--secondary mb-4 inline-flex w-full items-center justify-center gap-2 px-4 py-2.5 text-slate-700"
             >
               <svg width="18" height="18" viewBox="0 0 48 48" aria-hidden="true">
                 <path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3A12 12 0 1 1 24 12a11.9 11.9 0 0 1 8.4 3.3l5.6-5.6A20 20 0 1 0 44 24c0-1.2-.1-2.3-.4-3.5z"/>
@@ -210,19 +214,19 @@ export default function LoginPage({
           {/* divider */}
           {mode !== "reset" && (
             <div className="relative my-5">
-              <div className="h-px w-full bg-slate-200" />
-              <span className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-white px-3 text-xs text-slate-400">
+              <div className="h-px w-full bg-white/60" />
+              <span className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-white/80 px-3 text-xs uppercase tracking-wide text-slate-400">
                 or
               </span>
             </div>
           )}
 
           {/* Form */}
-          <form onSubmit={submit} className="space-y-3">
+          <form onSubmit={submit} className="space-y-4">
             {mode === "signup" && (
               <input
                 type="text"
-                className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-slate-800 placeholder-slate-400 outline-none ring-indigo-200 transition focus:border-indigo-400 focus:ring"
+                className="w-full rounded-2xl border border-slate-200/70 bg-white/90 px-3 py-2.5 text-sm text-slate-700 placeholder-slate-400 shadow-inner transition focus:border-amber-300 focus:outline-none focus:ring-2 focus:ring-amber-200/60"
                 placeholder="Full name"
                 autoComplete="name"
                 value={fullName}
@@ -235,8 +239,8 @@ export default function LoginPage({
               <>
                 <input
                   type="email"
-                  className={`w-full rounded-lg border border-slate-200 px-3 py-2.5 text-slate-800 placeholder-slate-400 outline-none ring-indigo-200 transition focus:border-indigo-400 focus:ring ${
-                    emailLocked ? "bg-slate-100 cursor-not-allowed" : "bg-white"
+                  className={`w-full rounded-2xl border border-slate-200/70 px-3 py-2.5 text-sm text-slate-700 placeholder-slate-400 shadow-inner transition focus:border-amber-300 focus:outline-none focus:ring-2 focus:ring-amber-200/60 ${
+                    emailLocked ? "bg-slate-100/80 cursor-not-allowed" : "bg-white/90"
                   }`}
                   placeholder="Email address"
                   autoComplete="email"
@@ -250,7 +254,7 @@ export default function LoginPage({
                   required
                 />
                 {emailLocked && (mode === "signup" || mode === "signin") ? (
-                  <p className="text-xs text-indigo-600">
+                  <p className="text-xs text-amber-600">
                     You&apos;re joining as <span className="font-medium">{email}</span>. Ask the host for a new invite if this isn&apos;t you.
                   </p>
                 ) : null}
@@ -261,7 +265,7 @@ export default function LoginPage({
               <div className="relative">
                 <input
                   type={showPwd ? "text" : "password"}
-                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 pr-10 text-slate-800 placeholder-slate-400 outline-none ring-indigo-200 transition focus:border-indigo-400 focus:ring"
+                  className="w-full rounded-2xl border border-slate-200/70 bg-white/90 px-3 py-2.5 pr-12 text-sm text-slate-700 placeholder-slate-400 shadow-inner transition focus:border-amber-300 focus:outline-none focus:ring-2 focus:ring-amber-200/60"
                   placeholder="Password"
                   autoComplete={mode === "signin" ? "current-password" : "new-password"}
                   value={password}
@@ -272,7 +276,7 @@ export default function LoginPage({
                 <button
                   type="button"
                   onClick={() => setShowPwd((s) => !s)}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md p-1 text-slate-400 hover:bg-slate-100"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 rounded-full bg-white/70 px-2 py-1 text-xs text-slate-500 shadow hover:bg-white"
                   aria-label={showPwd ? "Hide password" : "Show password"}
                 >
                   {showPwd ? "🙈" : "👁️"}
@@ -284,7 +288,7 @@ export default function LoginPage({
               <div className="relative">
                 <input
                   type={showPwd ? "text" : "password"}
-                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 pr-10 text-slate-800 placeholder-slate-400 outline-none ring-indigo-200 transition focus:border-indigo-400 focus:ring"
+                  className="w-full rounded-2xl border border-slate-200/70 bg-white/90 px-3 py-2.5 pr-12 text-sm text-slate-700 placeholder-slate-400 shadow-inner transition focus:border-amber-300 focus:outline-none focus:ring-2 focus:ring-amber-200/60"
                   placeholder="Confirm password"
                   autoComplete="new-password"
                   value={confirm}
@@ -295,7 +299,7 @@ export default function LoginPage({
                 <button
                   type="button"
                   onClick={() => setShowPwd((s) => !s)}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md p-1 text-slate-400 hover:bg-slate-100"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 rounded-full bg-white/70 px-2 py-1 text-xs text-slate-500 shadow hover:bg-white"
                   aria-label={showPwd ? "Hide password" : "Show password"}
                 >
                   {showPwd ? "🙈" : "👁️"}
@@ -309,7 +313,7 @@ export default function LoginPage({
                   <input
                     ref={resetPwdRef}
                     type={showResetPwd ? "text" : "password"}
-                    className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 pr-10 text-slate-800 placeholder-slate-400 outline-none ring-indigo-200 transition focus:border-indigo-400 focus:ring"
+                    className="w-full rounded-2xl border border-slate-200/70 bg-white/90 px-3 py-2.5 pr-12 text-sm text-slate-700 placeholder-slate-400 shadow-inner transition focus:border-amber-300 focus:outline-none focus:ring-2 focus:ring-amber-200/60"
                     placeholder="New password"
                     value={resetPassword}
                     onChange={(e) => setResetPassword(e.target.value)}
@@ -320,7 +324,7 @@ export default function LoginPage({
                   <button
                     type="button"
                     onClick={toggleResetVisibility}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md p-1 text-slate-400 hover:bg-slate-100"
+                    className="absolute right-3 top-1/2 -translate-y-1/2 rounded-full bg-white/70 px-2 py-1 text-xs text-slate-500 shadow hover:bg-white"
                     aria-label={showResetPwd ? "Hide password" : "Show password"}
                   >
                     {showResetPwd ? "🙈" : "👁️"}
@@ -330,7 +334,7 @@ export default function LoginPage({
                   <input
                     ref={resetConfirmRef}
                     type={showResetPwd ? "text" : "password"}
-                    className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 pr-10 text-slate-800 placeholder-slate-400 outline-none ring-indigo-200 transition focus:border-indigo-400 focus:ring"
+                    className="w-full rounded-2xl border border-slate-200/70 bg-white/90 px-3 py-2.5 pr-12 text-sm text-slate-700 placeholder-slate-400 shadow-inner transition focus:border-amber-300 focus:outline-none focus:ring-2 focus:ring-amber-200/60"
                     placeholder="Confirm password"
                     value={resetConfirm}
                     onChange={(e) => setResetConfirm(e.target.value)}
@@ -341,7 +345,7 @@ export default function LoginPage({
                   <button
                     type="button"
                     onClick={toggleResetVisibility}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md p-1 text-slate-400 hover:bg-slate-100"
+                    className="absolute right-3 top-1/2 -translate-y-1/2 rounded-full bg-white/70 px-2 py-1 text-xs text-slate-500 shadow hover:bg-white"
                     aria-label={showResetPwd ? "Hide password" : "Show password"}
                   >
                     {showResetPwd ? "🙈" : "👁️"}
@@ -351,17 +355,17 @@ export default function LoginPage({
             )}
 
             {mode === "signin" && (
-              <div className="flex items-center justify-between text-sm">
-                <label className="inline-flex cursor-pointer items-center gap-2 text-slate-600">
+              <div className="flex items-center justify-between text-xs text-slate-600 sm:text-sm">
+                <label className="inline-flex cursor-pointer items-center gap-2">
                   <input
                     type="checkbox"
-                    className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                    className="h-4 w-4 rounded border-slate-300 text-amber-500 focus:ring-amber-300"
                     checked={remember}
                     onChange={() => setRemember((v) => !v)}
                   />
-                  Remember me
+                  <span>Remember me</span>
                 </label>
-                <button type="button" className="text-indigo-600 hover:underline" onClick={() => switchMode("forgot")}>
+                <button type="button" className="text-amber-600 hover:underline" onClick={() => switchMode("forgot")}>
                   Forgot password?
                 </button>
               </div>
@@ -369,10 +373,10 @@ export default function LoginPage({
 
             {notice && (
               <div
-                className={`rounded-lg border px-3 py-2 text-sm ${
+                className={`rounded-2xl border px-3 py-2 text-xs shadow-inner sm:text-sm ${
                   noticeType === "error"
-                    ? "border-rose-200 bg-rose-50 text-rose-700"
-                    : "border-emerald-200 bg-emerald-50 text-emerald-700"
+                    ? "border-rose-200/70 bg-rose-50/85 text-rose-700"
+                    : "border-emerald-200/70 bg-emerald-50/85 text-emerald-700"
                 }`}
               >
                 {notice}
@@ -382,7 +386,7 @@ export default function LoginPage({
             <button
               type="submit"
               disabled={loading}
-              className="mt-1 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-gradient-to-r from-indigo-600 to-fuchsia-600 px-4 py-2.5 font-medium text-white shadow hover:from-indigo-500 hover:to-fuchsia-500 active:scale-[.99]"
+              className="bnd-btn bnd-btn--primary mt-2 inline-flex w-full items-center justify-center gap-2 px-4 py-2.5 text-white"
             >
               {loading
                 ? "Please wait…"
@@ -397,37 +401,38 @@ export default function LoginPage({
             </button>
           </form>
 
-          <p className="mt-4 text-center text-sm text-slate-600">
+          <p className="mt-6 text-center text-sm text-slate-600">
             {mode === "signin" && (
               <>
                 Don&apos;t have an account?{" "}
-                <button onClick={() => switchMode("signup")} className="text-indigo-600 hover:underline">Sign up</button>
+                <button onClick={() => switchMode("signup")} className="text-amber-600 hover:underline">Sign up</button>
               </>
             )}
             {mode === "signup" && (
               <>
                 Already have an account?{" "}
-                <button onClick={() => switchMode("signin")} className="text-indigo-600 hover:underline">Sign in</button>
+                <button onClick={() => switchMode("signin")} className="text-amber-600 hover:underline">Sign in</button>
               </>
             )}
             {mode === "forgot" && (
               <>
                 Remember your password?{" "}
-                <button onClick={() => switchMode("signin")} className="text-indigo-600 hover:underline">Back to sign in</button>
+                <button onClick={() => switchMode("signin")} className="text-amber-600 hover:underline">Back to sign in</button>
               </>
             )}
             {mode === "reset" && (
               <>
                 Need a new link?{" "}
-                <button onClick={() => switchMode("forgot")} className="text-indigo-600 hover:underline">Request again</button>
+                <button onClick={() => switchMode("forgot")} className="text-amber-600 hover:underline">Request again</button>
                 <br />
                 Ready to sign in?{" "}
-                <button onClick={() => switchMode("signin")} className="text-indigo-600 hover:underline">Back to sign in</button>
+                <button onClick={() => switchMode("signin")} className="text-amber-600 hover:underline">Back to sign in</button>
               </>
             )}
           </p>
         </div>
       </div>
     </div>
+  </div>
   );
 }
