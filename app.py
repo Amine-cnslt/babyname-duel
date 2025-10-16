@@ -50,7 +50,7 @@ except ImportError:  # pragma: no cover - optional dependency
 from google.oauth2 import id_token as google_id_token
 from google.auth.transport import requests as google_requests
 import requests as http_requests
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlparse, parse_qsl, urlunparse
 
 # Load .env.local using an absolute path (more reliable than relative cwd)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -419,6 +419,36 @@ def _render_reset_email_html(*, first_name: str, reset_link: Optional[str]) -> s
         <p style=\"margin:20px 0;\">If the button is missing, open the app and request another reset link or contact support for help.</p>
         """
 
+
+
+def _ensure_reset_link(token: str) -> Optional[str]:
+    if not PASSWORD_RESET_URL_BASE:
+        return None
+    base = PASSWORD_RESET_URL_BASE
+    if "{token}" in base:
+        link = base.replace("{token}", token)
+    elif base.endswith("?") or base.endswith("&"):
+        link = f"{base}token={token}"
+    elif base.endswith("="):
+        link = f"{base}{token}"
+    elif "?" in base:
+        link = f"{base}&token={token}"
+    elif base.endswith(("/", "#")):
+        link = f"{base}{token}"
+    else:
+        link = f"{base}?token={token}"
+    return _append_reset_params(link, token)
+
+
+def _append_reset_params(link: str, token: str) -> str:
+    parsed = urlparse(link)
+    query = dict(parse_qsl(parsed.query, keep_blank_values=True))
+    if not query.get("token"):
+        query["token"] = token
+    if "mode" not in query:
+        query["mode"] = "reset"
+    new_query = urlencode(query)
+    return urlunparse(parsed._replace(query=new_query))
     return f"""
     <!DOCTYPE html>
     <html lang=\"en\">
@@ -2916,18 +2946,7 @@ def api_reset_password_request():
         db.rollback()
         raise
 
-    reset_link = None
-    if PASSWORD_RESET_URL_BASE:
-        if "{token}" in PASSWORD_RESET_URL_BASE:
-            reset_link = PASSWORD_RESET_URL_BASE.replace("{token}", token)
-        elif PASSWORD_RESET_URL_BASE.endswith("?") or PASSWORD_RESET_URL_BASE.endswith("="):
-            reset_link = f"{PASSWORD_RESET_URL_BASE}{token}"
-        elif "?" in PASSWORD_RESET_URL_BASE:
-            reset_link = f"{PASSWORD_RESET_URL_BASE}&token={token}"
-        elif PASSWORD_RESET_URL_BASE.endswith(('/', '#')):
-            reset_link = f"{PASSWORD_RESET_URL_BASE}{token}"
-        else:
-            reset_link = f"{PASSWORD_RESET_URL_BASE}?token={token}"
+    reset_link = _ensure_reset_link(token)
 
     subject = "Reset your BabyNames Hive password"
     if reset_link:
