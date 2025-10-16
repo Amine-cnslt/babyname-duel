@@ -2951,6 +2951,31 @@ export default function App() {
   }, [sessionDoc, user]);
   const activeCount = Array.isArray(sessions?.active) ? sessions.active.length : 0;
   const archivedCount = Array.isArray(sessions?.archived) ? sessions.archived.length : 0;
+  const pendingListCount = useMemo(() => {
+    if (!Array.isArray(sessions?.active)) return 0;
+    return sessions.active.filter((record) => (record.listStatus || "draft") !== "submitted").length;
+  }, [sessions]);
+  const unreadNotificationCount = useMemo(
+    () => (Array.isArray(notifications) ? notifications.filter((note) => !note.readAt).length : 0),
+    [notifications],
+  );
+  const activeTieBreakCount = useMemo(() => {
+    if (!Array.isArray(sessions?.active)) return 0;
+    return sessions.active.filter((record) => record.tieBreakActive).length;
+  }, [sessions]);
+  const userFirstName = firstNameFromEmail(user?.email);
+  const mobileStats = useMemo(() => {
+    const stats = [
+      { label: "Active sessions", value: activeCount },
+      { label: "Lists to finish", value: pendingListCount },
+      { label: "Unread alerts", value: unreadNotificationCount },
+    ];
+    if (activeTieBreakCount > 0) {
+      stats.push({ label: "Tie-breaks live", value: activeTieBreakCount });
+    }
+    return stats;
+  }, [activeCount, pendingListCount, unreadNotificationCount, activeTieBreakCount]);
+  const allCaughtUp = pendingListCount === 0 && unreadNotificationCount === 0 && activeTieBreakCount === 0;
   return (
     <div className="bnd-app-shell relative flex min-h-screen flex-col text-slate-800">
       <FloatingDecor />
@@ -2972,7 +2997,7 @@ export default function App() {
             >
               <div className="space-y-1">
                 <div className="font-display text-lg font-semibold text-slate-900">
-                  Hey {firstNameFromEmail(user.email)}
+                  Hey {userFirstName}
                 </div>
                 <div className="text-xs text-slate-500">{user.email}</div>
                 <div className="text-xs text-slate-500">
@@ -3191,10 +3216,26 @@ export default function App() {
                 </>
               ) : (
                 <div className="col-span-full space-y-4">
-                  <Card className="space-y-2 p-5">
-                    <div className="text-sm font-semibold text-slate-700">Stay in sync</div>
+                  <Card className="space-y-3 p-5">
+                    <div className="text-sm font-semibold text-slate-700">Hey {userFirstName}, here’s what’s happening</div>
+                    <div className="space-y-2 text-xs text-slate-500">
+                      {mobileStats.map(({ label, value }) => (
+                        <div
+                          key={label}
+                          className="flex items-center justify-between rounded-lg border border-white/60 bg-white/80 px-3 py-2 shadow-sm"
+                        >
+                          <span>{label}</span>
+                          <span className="font-semibold text-slate-700">{value}</span>
+                        </div>
+                      ))}
+                    </div>
+                    {allCaughtUp ? (
+                      <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-700">
+                        You’re all caught up! 🎉
+                      </div>
+                    ) : null}
                     <p className="text-xs text-slate-500">
-                      Tap the bottom tabs to jump into sessions or check alerts. We’ll drop highlights here soon.
+                      Use the tabs below to manage sessions or check alerts.
                     </p>
                     <div className="flex flex-wrap items-center gap-2">
                       <Button variant="primary" onClick={() => handleDockNavigate("sessions")}>
