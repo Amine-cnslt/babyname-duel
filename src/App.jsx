@@ -1864,7 +1864,7 @@ export default function App() {
   }, [isDesktop]);
 
   const queryParams = useQueryParams();
-  const initialResetToken = queryParams.resetToken || "";
+  const initialResetToken = queryParams.resetToken || queryParams.token || "";
   const inviteQueryEmail =
     typeof queryParams.email === "string" && queryParams.email
       ? queryParams.email.trim().toLowerCase()

@@ -72,6 +72,22 @@ export default function LoginPage({
     setEmailLocked(Boolean(lockEmail && normalized));
   }, [initialEmail, lockEmail]);
 
+  useEffect(() => {
+    if (initialMode && MODES.has(initialMode) && initialMode !== mode) {
+      setMode(initialMode);
+    }
+  }, [initialMode, mode]);
+
+  useEffect(() => {
+    if (!initialResetToken) return;
+    setMode("reset");
+    setResetToken(initialResetToken);
+    setResetPassword("");
+    setResetConfirm("");
+    setShowResetPwd(false);
+    scheduleResetType(false);
+  }, [initialResetToken, scheduleResetType]);
+
   const switchMode = (next) => {
     setMode(next);
     setLoading(false);
