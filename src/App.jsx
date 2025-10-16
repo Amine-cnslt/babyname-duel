@@ -2972,10 +2972,12 @@ export default function App() {
                 </div>
               </div>
               <div className="flex flex-wrap items-center gap-2">
-                <Button variant="primary" onClick={() => setCreateOpen(true)}>
-                  <PlusCircle className="h-4 w-4" />
-                  New session
-                </Button>
+                {activeCount + archivedCount === 0 ? (
+                  <Button variant="primary" onClick={() => setCreateOpen(true)}>
+                    <PlusCircle className="h-4 w-4" />
+                    New session
+                  </Button>
+                ) : null}
                 <Button variant="subtle" onClick={() => handleDockNavigate("sessions")}>
                   <LayoutGrid className="h-4 w-4" />
                   View sessions
