@@ -981,6 +981,7 @@ const ListEditor = ({
   const names = listState.names;
   const ranks = listState.ranks;
   const facts = listState.facts || {};
+  const slotTotal = requiredNames || names.length || 1;
   const entries = names
     .map((value, index) => ({ name: value, rank: ranks[index] ?? "", index }))
     .filter((item) => (canEdit ? true : Boolean(item.name && item.name.trim())));
@@ -1006,7 +1007,7 @@ const ListEditor = ({
       <div className="space-y-3">
         <div className="space-y-1 text-xs">
           <p className="text-slate-500">
-            Provide exactly {requiredNames} distinct names. Assign each a ranking from 1 to {requiredNames} with no duplicates. Drafts allow blanks or rank 0.
+            Provide exactly {slotTotal} distinct names. Assign each a ranking from 1 to {slotTotal} with no duplicates. Drafts allow blanks or rank 0.
           </p>
           <p className="text-indigo-600">Focus: {NAME_FOCUS_LABELS[nameFocus] || NAME_FOCUS_LABELS.mix}</p>
         </div>
@@ -1037,7 +1038,7 @@ const ListEditor = ({
                   >
                     <option value="">Rank</option>
                     <option value={0}>0</option>
-                    {Array.from({ length: requiredNames }, (_, i) => i + 1).map((rank) => (
+                    {Array.from({ length: slotTotal }, (_, i) => i + 1).map((rank) => (
                       <option key={rank} value={rank}>
                         {rank}
                       </option>
@@ -1086,7 +1087,6 @@ const OtherListsPanel = ({
   lists,
   scores,
   currentUser,
-  requiredNames,
   nameFocus,
   draftState,
   completedScores = {},
@@ -1095,14 +1095,15 @@ const OtherListsPanel = ({
   submitting,
   expanded,
   onToggle,
+  listStates = {},
 }) => {
   const myUid = currentUser?.email;
   const otherLists = useMemo(() => {
     if (!lists || !myUid) return [];
     return Object.entries(lists)
       .filter(([ownerUid, data]) => ownerUid !== myUid && data.status === "submitted")
-      .map(([ownerUid, data]) => ({ ownerUid, ...data }));
-  }, [lists, myUid]);
+      .map(([ownerUid, data]) => ({ ownerUid, slotCount: listStates?.[ownerUid]?.slotCount || data.names?.length || 0, ...data }));
+  }, [lists, myUid, listStates]);
 
   return (
     <SectionCollapse
@@ -1112,7 +1113,7 @@ const OtherListsPanel = ({
       onToggle={onToggle}
     >
       <div className="space-y-1 text-xs">
-        <p className="text-slate-500">Assign each submitted list a full set of ranks from 1 to {requiredNames}. Use every rank exactly once.</p>
+        <p className="text-slate-500">Assign each submitted list a full set of ranks. Each card shows how many ranks are required.</p>
         <p className="text-indigo-600">Focus: {NAME_FOCUS_LABELS[nameFocus] || NAME_FOCUS_LABELS.mix}</p>
       </div>
 
@@ -1126,7 +1127,7 @@ const OtherListsPanel = ({
                 <div className="flex items-center justify-between">
                   <div>
                     <div className="text-sm font-semibold text-slate-800">{entry.ownerUid}</div>
-                    <div className="text-xs text-slate-500">Use every rank exactly once.</div>
+                    <div className="text-xs text-slate-500">Use every rank from 1 to {entry.slotCount || entry.names.length} exactly once.</div>
                   </div>
                   {isComplete ? (
                     <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-600">
@@ -1164,7 +1165,7 @@ const OtherListsPanel = ({
                             disabled={submitting === entry.ownerUid}
                           >
                             <option value="">Rank</option>
-                            {Array.from({ length: requiredNames }, (_, i) => i + 1).map((rank) => (
+                            {Array.from({ length: entry.slotCount || entry.names.length }, (_, i) => i + 1).map((rank) => (
                               <option key={rank} value={rank}>
                                 {rank}
                               </option>
@@ -2149,11 +2150,15 @@ export default function App() {
     setMessages(payload.messages || []);
 
     const sessionInfo = sessionData;
-    const required = sessionInfo?.requiredNames || sessionInfo?.maxNames || 0;
+    const stateMap = sessionInfo?.listStates || {};
     const myUid = user?.email;
+    const myState = myUid ? stateMap[myUid] : null;
     const myList = myUid ? (payload.lists || {})[myUid] : null;
-    const names = Array.from({ length: required }, (_, i) => myList?.names?.[i] || "");
-    const ranks = Array.from({ length: required }, (_, i) => {
+    const inferredLength = myList?.names?.length || 0;
+    const mySlotCount = myState?.slotCount || inviteRequiredNames || sessionInfo?.requiredNames || sessionInfo?.maxNames || inferredLength;
+    const slotCount = mySlotCount || inferredLength;
+    const names = Array.from({ length: slotCount }, (_, i) => myList?.names?.[i] || "");
+    const ranks = Array.from({ length: slotCount }, (_, i) => {
       if (!myList || !myList.names?.[i]) return 0;
       const name = myList.names[i];
       return myList.selfRanks?.[name] ?? i + 1;
@@ -2177,7 +2182,7 @@ export default function App() {
         listNames.forEach((listName) => {
           const storedValue = ownerDraft?.[listName];
           const numeric = Number(storedValue);
-          if (!Number.isNaN(numeric) && (mergedDrafts[ownerUid]?.[listName] === undefined)) {
+          if (!Number.isNaN(numeric) && mergedDrafts[ownerUid]?.[listName] === undefined) {
             const duplicate = Object.entries(mergedDrafts[ownerUid] || {}).some(
               ([otherName, otherValue]) => otherName !== listName && otherValue === numeric,
             );
@@ -2195,19 +2200,22 @@ export default function App() {
     writeScoreDraftsToStorage(sessionData.sid, user?.email, cleanedStoredDrafts);
     const completion = {};
     Object.entries(draftScores).forEach(([ownerUid, ownerDraft]) => {
+      const ownerState = stateMap[ownerUid];
+      const ownerList = (payload.lists || {})[ownerUid];
+      const ownerSlot = ownerState?.slotCount || ownerList?.names?.length || sessionInfo?.requiredNames || sessionInfo?.maxNames || 0;
       const values = Object.values(ownerDraft || {});
-      if (values.length === required) {
+      if (ownerSlot && values.length === ownerSlot) {
         const normalized = values.map((value) => Number(value));
         const unique = new Set(normalized);
-        const inRange = normalized.every((rank) => Number.isInteger(rank) && rank >= 1 && rank <= required);
-        if (inRange && unique.size === required) {
+        const inRange = normalized.every((rank) => Number.isInteger(rank) && rank >= 1 && rank <= ownerSlot);
+        if (inRange && unique.size === ownerSlot) {
           completion[ownerUid] = true;
         }
       }
     });
     setCompletedScores(completion);
     setScoreDrafts(mergedDrafts);
-  }, [user]);
+  }, [user, inviteRequiredNames]);
 
   const loadSession = useCallback(
     async (sid) => {
@@ -2413,6 +2421,11 @@ export default function App() {
             setTimeout(() => {
               lastMessageCountRef.current = messages.length;
             }, 0);
+          } else {
+            updatePanelState((prev) => ({ ...prev, messages: true }));
+            setTimeout(() => {
+              scrollToId("messages-panel");
+            }, 80);
           }
           break;
         case "notifications":
@@ -2429,7 +2442,7 @@ export default function App() {
           break;
       }
     },
-    [handleExitSession, scrollToId, sessionDoc, isDesktop, messages.length],
+    [handleExitSession, scrollToId, sessionDoc, isDesktop, messages.length, updatePanelState],
   );
 
   const allExpanded = PANEL_KEYS.every((panelKey) => panelExpanded[panelKey]);
@@ -2440,7 +2453,10 @@ export default function App() {
     if (listDraft.status === "submitted") {
       return;
     }
-    const required = sessionDoc.requiredNames || sessionDoc.maxNames || 0;
+    const stateMap = sessionDoc.listStates || {};
+    const myState = stateMap[user.email] || {};
+    const slotCountFallback = listDraft.names?.length || sessionDoc.requiredNames || sessionDoc.maxNames || 0;
+    const slotCount = myState.slotCount || slotCountFallback;
     const pairs = listDraft.names
       .map((name, index) => ({ name: (name || "").trim(), index }))
       .filter((item) => item.name.length > 0);
@@ -2462,16 +2478,16 @@ export default function App() {
     });
 
     if (finalize) {
-      if (pairs.length !== required) {
-        alert(`Exactly ${required} names are required to submit.`);
+      if (slotCount && pairs.length !== slotCount) {
+        alert(`Exactly ${slotCount} names are required to submit.`);
         return;
       }
       const allRanks = pairs.map((item) => Number(selfRanks[item.name]));
-      if (allRanks.some((rank) => rank < 1 || rank > required)) {
-        alert(`Ranks must be between 1 and ${required}.`);
+      if (slotCount && allRanks.some((rank) => rank < 1 || rank > slotCount)) {
+        alert(`Ranks must be between 1 and ${slotCount}.`);
         return;
       }
-      if (new Set(allRanks).size !== required) {
+      if (slotCount && new Set(allRanks).size !== slotCount) {
         alert("Each rank must be used exactly once.");
         return;
       }
@@ -2485,7 +2501,7 @@ export default function App() {
         names: pairs.map((item) => item.name),
         selfRanks,
         finalize,
-        slotCount: required,
+        slotCount: slotCount || pairs.length,
       });
       await loadSession(sessionDoc.sid);
       await refreshNotifications();
@@ -2532,18 +2548,20 @@ export default function App() {
   };
 
   const scoringModel = useMemo(() => {
-    const required = sessionDoc?.requiredNames || sessionDoc?.maxNames || 0;
+    const stateMap = sessionDoc?.listStates || {};
     const result = {};
     Object.entries(lists || {}).forEach(([ownerUid, data]) => {
       if (ownerUid === user?.email) return;
       if (data.status !== "submitted") return;
       const ownerScores = scoreDrafts?.[ownerUid] || {};
+      const ownerSlot = stateMap[ownerUid]?.slotCount || data.names?.length || sessionDoc?.requiredNames || sessionDoc?.maxNames || 0;
       result[ownerUid] = {};
       data.names.forEach((name) => {
         const currentScore = ownerScores[name];
         result[ownerUid][name] = {
           value: currentScore === undefined ? "" : String(currentScore),
           set: (val) => handleScoreChange(ownerUid, name, val),
+          slotCount: ownerSlot,
         };
       });
       Object.keys(ownerScores).forEach((scoredName) => {
@@ -2552,7 +2570,7 @@ export default function App() {
         }
       });
     });
-    return { required, result };
+    return { result };
   }, [lists, scoreDrafts, sessionDoc, user]);
 
   const handleSubmitScores = async (ownerUid) => {
@@ -2561,25 +2579,26 @@ export default function App() {
       alert("Scores already submitted for this list.");
       return;
     }
-    const required = sessionDoc.requiredNames || sessionDoc.maxNames || 0;
     const listEntry = lists?.[ownerUid];
     if (!listEntry) return;
+    const ownerState = sessionDoc.listStates?.[ownerUid] || {};
     const draft = scoreDrafts?.[ownerUid] || {};
     const names = listEntry.names || [];
-    if (names.length !== required) {
+    const slotCount = ownerState.slotCount || names.length || sessionDoc.requiredNames || sessionDoc.maxNames || 0;
+    if (slotCount && names.length !== slotCount) {
       alert("Owner list is incomplete.");
       return;
     }
     const ranks = names.map((name) => draft[name]);
     if (ranks.some((rank) => !Number.isInteger(rank))) {
-      alert(`Please assign every name a unique rank between 1 and ${required}.`);
+      alert(`Please assign every name a unique rank between 1 and ${slotCount}.`);
       return;
     }
-    if (ranks.some((rank) => rank < 1 || rank > required)) {
-      alert(`Each score must be between 1 and ${required}.`);
+    if (ranks.some((rank) => rank < 1 || rank > slotCount)) {
+      alert(`Each score must be between 1 and ${slotCount}.`);
       return;
     }
-    if (new Set(ranks).size !== required) {
+    if (new Set(ranks).size !== slotCount) {
       alert("Each rank must be used once per list.");
       return;
     }
@@ -2996,6 +3015,9 @@ export default function App() {
     return sessions.active.filter((record) => record.tieBreakActive).length;
   }, [sessions]);
   const userFirstName = firstNameFromEmail(user?.email);
+  const listStates = sessionDoc?.listStates || {};
+  const viewerState = user?.email ? listStates[user.email] : null;
+  const viewerSlotCount = viewerState?.slotCount || inviteRequiredNames || sessionDoc?.requiredNames || sessionDoc?.maxNames || listDraft.names?.length || 0;
   const mobileStats = useMemo(() => {
     const stats = [
       { label: "Active sessions", value: activeCount },
@@ -3266,10 +3288,10 @@ export default function App() {
               </div>
 
               <div className="col-span-full lg:col-span-7">
-                <ListEditor
-                  requiredNames={requiredNames}
-                  nameFocus={activeNameFocus}
-                  listState={listDraft}
+              <ListEditor
+                requiredNames={viewerSlotCount || requiredNames}
+                nameFocus={activeNameFocus}
+                listState={listDraft}
                   onChangeName={(index, value) =>
                     setListDraft((prev) => {
                       const names = [...prev.names];
@@ -3294,20 +3316,20 @@ export default function App() {
               </div>
 
               <div className="col-span-full lg:col-span-7">
-                <OtherListsPanel
-                  lists={lists}
-                  scores={scoringModel.result}
-                  currentUser={user}
-                  requiredNames={requiredNames}
-                  nameFocus={activeNameFocus}
-                  draftState={scoreDrafts}
-                  completedScores={completedScores}
-                  onSaveDraft={handleSaveScoreDraft}
-                  onSubmitScores={handleSubmitScores}
-                  submitting={scoreSubmitting}
-                  expanded={panelExpanded.otherLists}
-                  onToggle={() => togglePanel("otherLists")}
-                />
+              <OtherListsPanel
+                lists={lists}
+                scores={scoringModel.result}
+                currentUser={user}
+                nameFocus={activeNameFocus}
+                draftState={scoreDrafts}
+                completedScores={completedScores}
+                onSaveDraft={handleSaveScoreDraft}
+                onSubmitScores={handleSubmitScores}
+                submitting={scoreSubmitting}
+                expanded={panelExpanded.otherLists}
+                onToggle={() => togglePanel("otherLists")}
+                listStates={sessionDoc?.listStates || {}}
+              />
               </div>
 
               <div className="col-span-full lg:col-span-7">
