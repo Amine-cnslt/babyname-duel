@@ -1442,6 +1442,8 @@ const ResultsPanel = ({
   }
 
   let bodyContent = null;
+  const hasRanking = aggregated.ranking.length > 0;
+
   if (expanded) {
     if (!invitesLocked) {
       bodyContent = (
@@ -1449,7 +1451,7 @@ const ResultsPanel = ({
           Waiting for the owner to close invites before revealing totals.
         </div>
       );
-    } else if (aggregated.ranking.length) {
+    } else if (hasRanking || tieBreakActive || finalWinnerList.length) {
       bodyContent = (
         <div className="space-y-3">
           {showBanner && displayWinner ? (
@@ -1544,41 +1546,47 @@ const ResultsPanel = ({
             </div>
           ) : null}
 
-          {aggregated.ranking.map((row, index) => {
-            const fact = factIndex[row.name.toLowerCase()];
-            const isWinner = finalWinnerList.includes(row.name);
-            const isTieCandidate = tieBreakActive && tieBreakNames.includes(row.name);
-            const rowClass = [
-              "rounded-lg border px-3 py-2 transition-colors",
-              isWinner ? "border-amber-200 bg-white shadow-sm" : "border-slate-200",
-              !isWinner && isTieCandidate ? "bg-indigo-50/70 border-indigo-200" : "",
-            ].join(" ");
-            return (
-              <div key={row.name} className={rowClass}>
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div className="flex flex-wrap items-center gap-2 font-semibold text-slate-700">
-                    <span>#{index + 1} · {row.name}</span>
-                    <FactButton fact={fact} />
-                    {isWinner ? (
-                      <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-700">Winner</span>
-                    ) : null}
-                    {!isWinner && isTieCandidate ? (
-                      <span className="rounded-full bg-indigo-100 px-2 py-0.5 text-[11px] font-semibold text-indigo-700">Tie-break</span>
-                    ) : null}
-                  </div>
-                  <div className="text-sm text-slate-500">Total: {row.total} · Average: {row.average.toFixed(2)}</div>
-                </div>
-                <div className="mt-1 grid gap-1 text-xs text-slate-500">
-                  {Object.entries(row.owners).map(([ownerUid, score]) => (
-                    <div key={ownerUid} className="flex justify-between">
-                      <span>Scored by {ownerUid}</span>
-                      <span>Rank: {score}</span>
+          {hasRanking ? (
+            aggregated.ranking.map((row, index) => {
+              const fact = factIndex[row.name.toLowerCase()];
+              const isWinner = finalWinnerList.includes(row.name);
+              const isTieCandidate = tieBreakActive && tieBreakNames.includes(row.name);
+              const rowClass = [
+                "rounded-lg border px-3 py-2 transition-colors",
+                isWinner ? "border-amber-200 bg-white shadow-sm" : "border-slate-200",
+                !isWinner && isTieCandidate ? "bg-indigo-50/70 border-indigo-200" : "",
+              ].join(" ");
+              return (
+                <div key={row.name} className={rowClass}>
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex flex-wrap items-center gap-2 font-semibold text-slate-700">
+                      <span>#{index + 1} · {row.name}</span>
+                      <FactButton fact={fact} />
+                      {isWinner ? (
+                        <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-700">Winner</span>
+                      ) : null}
+                      {!isWinner && isTieCandidate ? (
+                        <span className="rounded-full bg-indigo-100 px-2 py-0.5 text-[11px] font-semibold text-indigo-700">Tie-break</span>
+                      ) : null}
                     </div>
-                  ))}
+                    <div className="text-sm text-slate-500">Total: {row.total} · Average: {row.average.toFixed(2)}</div>
+                  </div>
+                  <div className="mt-1 grid gap-1 text-xs text-slate-500">
+                    {Object.entries(row.owners).map(([ownerUid, score]) => (
+                      <div key={ownerUid} className="flex justify-between">
+                        <span>Scored by {ownerUid}</span>
+                        <span>Rank: {score}</span>
+                      </div>
+                    ))}
+                  </div>
                 </div>
-              </div>
-            );
-          })}
+              );
+            })
+          ) : (
+            <div className="rounded-lg border border-dashed border-slate-200 px-3 py-4 text-sm text-slate-500">
+              Scores are still coming in. Once every list is ranked the leaderboard will appear here.
+            </div>
+          )}
         </div>
       );
     } else {

@@ -1870,7 +1870,7 @@ def api_get_session(sid):
             for row in scores_rows
         ]
 
-        if session.status != "completed":
+        if not session.invites_locked and session.status != "completed":
             viewer_uid = member.uid if member else None
             if viewer_uid:
                 scores = [score for score in scores if score["raterUid"] == viewer_uid]
